@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model ReleaseRecord {
+  id             String   @id @default(uuid())
+  environment    String   // SIT, UAT, Prod
+  server         String   // e.g., Bot-Builder, Chat-Service
+  service        String   // e.g., bot-builder-api, websocket-server
+  developerName  String   // Developer who wrote or provided the build
+  status         String   @default("Pending") // Success, Failed, Pending
+  
+  isBuildUpdate  Boolean  @default(false)
+  isEnvUpdate    Boolean  @default(false)
+  envDetails     String?
+  isConfigUpdate Boolean  @default(false)
+  configDetails  String?
+  hasCommands    Boolean  @default(false)
+  commandDetails String?
+  
+  note           String?
+  source         String   // Teams DM, Teams Group, OneDrive, SharePoint
+  added_by       String   // Hameed or Hanzala
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

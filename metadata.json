@@ -1,0 +1,6 @@
+{
+  "name": "Enterprise Release Tracker",
+  "description": "Enterprise Release Tracker for tracking server and service deployments across SIT, UAT, and Production environments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
