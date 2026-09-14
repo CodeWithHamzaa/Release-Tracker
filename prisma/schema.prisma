@@ -13,8 +13,9 @@ model ReleaseRecord {
   environment    String   // SIT, UAT, Prod
   server         String   // e.g., Bot-Builder, Chat-Service
   service        String   // e.g., bot-builder-api, websocket-server
+  version        String   // e.g., v1.0.2
   developerName  String   // Developer who wrote or provided the build
-  status         String   @default("Pending") // Success, Failed, Pending
+  status         String   @default("PENDING") // SUCCESS, FAILED, PENDING
   
   isBuildUpdate  Boolean  @default(false)
   isEnvUpdate    Boolean  @default(false)

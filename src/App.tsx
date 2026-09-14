@@ -5,23 +5,24 @@ import { AddRecordForm } from './components/AddRecordForm';
 import { ReleaseRecord } from '@/lib/types';
 import { getSupabaseClient } from '@/lib/supabase';
 
-// Initial enterprise release dataset with developerName and status
+// Initial enterprise release dataset reflecting Docker Compose architecture
 const INITIAL_RECORDS: ReleaseRecord[] = [
   {
     id: 'rel-101',
     environment: 'Prod',
     server: 'Bot-Builder',
-    service: 'bot-builder-api',
+    service: 'ldap-connector',
+    version: 'v1.2.4',
     developerName: 'Sufyan Tariq',
-    status: 'Success',
+    status: 'SUCCESS',
     isBuildUpdate: true,
     isEnvUpdate: true,
-    envDetails: 'REDIS_CLUSTER_URL=rediss://prod-cache.internal:6379\nBOT_MAX_CONCURRENCY=250',
+    envDetails: 'LDAP_POOL_SIZE=50\nLDAP_TIMEOUT_MS=3000',
     isConfigUpdate: true,
-    configDetails: 'Updated timeout thresholds in config/routing.json from 15s down to 8s.',
+    configDetails: 'Configured active directory failover replica endpoints.',
     hasCommands: true,
-    commandDetails: 'kubectl rollout restart deployment/bot-builder-api -n production',
-    note: 'Emergency hotfix addressing connection leak during peak hours. Verified in production.',
+    commandDetails: 'docker compose -f docker-compose.prod.yml up -d ldap-connector',
+    note: 'Enterprise LDAP authentication connector optimized for production scale.',
     source: 'Teams Group',
     added_by: 'A.Hameed',
     createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
@@ -30,40 +31,126 @@ const INITIAL_RECORDS: ReleaseRecord[] = [
   {
     id: 'rel-102',
     environment: 'UAT',
+    server: 'Bot-Builder',
+    service: 'ldap-connector',
+    version: 'v1.2.4',
+    developerName: 'Sufyan Tariq',
+    status: 'SUCCESS',
+    isBuildUpdate: true,
+    isEnvUpdate: false,
+    envDetails: null,
+    isConfigUpdate: false,
+    configDetails: null,
+    hasCommands: true,
+    commandDetails: 'docker compose -f docker-compose.uat.yml up -d ldap-connector',
+    note: 'UAT sign-off completed by QA lead.',
+    source: 'Teams Group',
+    added_by: 'A.Hameed',
+    createdAt: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
+  },
+  {
+    id: 'rel-103',
+    environment: 'SIT',
+    server: 'Bot-Builder',
+    service: 'rbac-service',
+    version: 'v1.3.0-rc1',
+    developerName: 'Sufyan Tariq',
+    status: 'SUCCESS',
+    isBuildUpdate: true,
+    isEnvUpdate: false,
+    envDetails: null,
+    isConfigUpdate: false,
+    configDetails: null,
+    hasCommands: true,
+    commandDetails: 'docker compose -f docker-compose.sit.yml up -d rbac-service',
+    note: 'Batch release: RBAC role matrix permissions updated.',
+    source: 'Teams DM',
+    added_by: 'Hanzala',
+    createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+  },
+  {
+    id: 'rel-104',
+    environment: 'UAT',
     server: 'Chat-Service',
-    service: 'websocket-server',
+    service: 'chat-service',
+    version: 'v2.1.0',
     developerName: 'Muhammad Bilal',
-    status: 'Pending',
+    status: 'PENDING',
     isBuildUpdate: true,
     isEnvUpdate: false,
     envDetails: null,
     isConfigUpdate: true,
-    configDetails: 'Configured heartbeat ping interval 25s for mobile clients in gateway.yaml.',
+    configDetails: 'Configured heartbeat ping interval 25s for mobile clients.',
     hasCommands: false,
     commandDetails: null,
-    note: 'Staged for regression test pass with mobile client release candidate v3.2.',
+    note: 'Staged for regression test pass with mobile client release candidate.',
     source: 'SharePoint',
     added_by: 'Hanzala',
     createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
     updatedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
   },
   {
-    id: 'rel-103',
+    id: 'rel-105',
     environment: 'SIT',
-    server: 'Auth-Gateway',
-    service: 'oauth-provider',
-    developerName: 'Ali Raza',
-    status: 'Failed',
+    server: 'Chat-Service',
+    service: 'chat-service-worker',
+    version: 'v2.1.0',
+    developerName: 'Muhammad Bilal',
+    status: 'SUCCESS',
     isBuildUpdate: true,
-    isEnvUpdate: true,
-    envDetails: 'SAML_ENTITY_ID=https://auth.internal.corp/saml\nSAML_CALLBACK_VALIDATION=strict',
+    isEnvUpdate: false,
+    envDetails: null,
     isConfigUpdate: false,
     configDetails: null,
     hasCommands: true,
-    commandDetails: 'docker compose -f docker-compose.sit.yml up -d --force-recreate oauth-provider',
-    note: 'SSO endpoint handshake failed integration test. Awaiting bug fix from backend team.',
-    source: 'Teams DM',
+    commandDetails: 'docker compose -f docker-compose.sit.yml up -d chat-service-worker',
+    note: 'Passed queue worker consumer load testing in SIT.',
+    source: 'SharePoint',
+    added_by: 'Hanzala',
+    createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+  },
+  {
+    id: 'rel-106',
+    environment: 'SIT',
+    server: 'Database',
+    service: 'redis-db',
+    version: '7.2-alpine',
+    developerName: 'Ali Raza',
+    status: 'SUCCESS',
+    isBuildUpdate: true,
+    isEnvUpdate: true,
+    envDetails: 'MAXMEMORY_POLICY=volatile-lru\nREDIS_PORT=6379',
+    isConfigUpdate: false,
+    configDetails: null,
+    hasCommands: true,
+    commandDetails: 'docker compose -f docker-compose.sit.yml up -d redis-db',
+    note: 'Cache tier container update for high throughput testing.',
+    source: 'Teams Group',
     added_by: 'A.Hameed',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
+    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
+  },
+  {
+    id: 'rel-107',
+    environment: 'UAT',
+    server: 'ChatBot / NLU',
+    service: 'retriever_api_service',
+    version: 'v1.4.0',
+    developerName: 'Muhammad Bilal',
+    status: 'SUCCESS',
+    isBuildUpdate: true,
+    isEnvUpdate: false,
+    envDetails: null,
+    isConfigUpdate: true,
+    configDetails: 'Vector search chunk limit increased to 10 docs.',
+    hasCommands: false,
+    commandDetails: null,
+    note: 'Staged for acceptance testing with new embeddings model.',
+    source: 'Teams DM',
+    added_by: 'Hanzala',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(),
     updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(),
   },
@@ -73,7 +160,7 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>('/');
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('enterprise_release_records_v2');
+      const saved = localStorage.getItem('enterprise_release_records_v3');
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -94,7 +181,7 @@ export default function App() {
   // Sync to local storage for persistence across reloads
   useEffect(() => {
     try {
-      localStorage.setItem('enterprise_release_records_v2', JSON.stringify(records));
+      localStorage.setItem('enterprise_release_records_v3', JSON.stringify(records));
     } catch {
       // ignore
     }
@@ -156,11 +243,10 @@ export default function App() {
     }
   }, []);
 
-  const handleNewRecord = (newRecord: ReleaseRecord) => {
-    setRecords((prev) => {
-      const filtered = prev.filter((r) => r.id !== newRecord.id);
-      return [newRecord, ...filtered];
-    });
+  const handleNewRecord = (incoming: ReleaseRecord | ReleaseRecord[]) => {
+    const list = Array.isArray(incoming) ? incoming : [incoming];
+    const incomingIds = new Set(list.map((r) => r.id));
+    setRecords((prev) => [...list, ...prev.filter((r) => !incomingIds.has(r.id))]);
     setCurrentPath('/');
   };
 
@@ -171,7 +257,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-screen bg-[#0a0a0a] text-slate-300 flex flex-col font-sans selection:bg-emerald-950 selection:text-emerald-300">
       <Navbar
         currentPath={currentPath}
         onNavigate={(path) => setCurrentPath(path)}
@@ -195,24 +281,6 @@ export default function App() {
           />
         )}
       </main>
-
-      {/* Enterprise Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-700">Enterprise Release Tracker</span>
-            <span>•</span>
-            <span>Single Write-Path API Spec</span>
-            <span>•</span>
-            <span>Prisma + Supabase PostgreSQL</span>
-          </div>
-          <div className="flex items-center space-x-4 text-slate-400">
-            <span>Author Roles: A.Hameed, Hanzala</span>
-            <span>•</span>
-            <span>Live Status Stream</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
