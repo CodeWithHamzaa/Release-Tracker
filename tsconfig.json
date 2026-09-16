@@ -25,5 +25,5 @@
     "noEmit": true
   },
   "include": ["src/**/*", "lib/**/*"],
-  "exclude": ["node_modules", "dist", "app"]
+  "exclude": ["node_modules", "dist"]
 }

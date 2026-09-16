@@ -140,21 +140,27 @@ const memoryRecords: ReleaseRecord[] = [
   },
 ];
 
-// Helper: Bearer auth verification
+// Helper: Bearer auth verification.
+// Fails closed: a missing or malformed Authorization header, an empty token,
+// or an unconfigured server secret all reject the request.
 function isAuthorized(req: Request): boolean {
   const authHeader = req.headers.authorization || req.headers.Authorization;
   if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-    return true; // Allow graceful access in preview if header omitted
-  }
-  const token = authHeader.substring(7).trim();
-  const validSecret =
-    process.env.API_SECRET_KEY ||
-    process.env.NEXT_PUBLIC_API_SECRET_KEY ||
-    'Alara_Tracker_76773';
-  if (!token || (validSecret && token !== validSecret && token !== 'Alara_Tracker_76773')) {
     return false;
   }
-  return true;
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return false;
+  }
+
+  // No hardcoded fallback: writes are rejected until a secret is configured.
+  const validSecret = process.env.API_SECRET_KEY || process.env.VITE_API_SECRET_KEY;
+  if (!validSecret) {
+    return false;
+  }
+
+  return token === validSecret;
 }
 
 // 1. Health check
@@ -356,6 +362,10 @@ app.post('/api/records', async (req: Request, res: Response) => {
 
 // 5. PATCH update release record
 app.patch('/api/records/:id', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing Bearer token.' });
+  }
+
   const { id } = req.params;
   const body = req.body;
 
@@ -393,6 +403,10 @@ app.patch('/api/records/:id', async (req: Request, res: Response) => {
 
 // 6. DELETE release record
 app.delete('/api/records/:id', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing Bearer token.' });
+  }
+
   const { id } = req.params;
   const idx = memoryRecords.findIndex((r) => r.id === id);
   if (idx !== -1) {

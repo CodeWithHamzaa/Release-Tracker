@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Search,
   Plus,
@@ -22,14 +22,12 @@ import { ReleaseRecord } from '@/lib/types';
 import { ReleaseCard } from './ReleaseCard';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
-import { getSupabaseClient } from '@/lib/supabase';
 
 interface DashboardViewProps {
   records: ReleaseRecord[];
   onAddRecord: () => void;
   onRefresh: () => void;
   isLoading?: boolean;
-  onNewRecordReceived?: (record: ReleaseRecord) => void;
   onRecordUpdated?: (record: ReleaseRecord) => void;
 }
 
@@ -38,7 +36,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onAddRecord,
   onRefresh,
   isLoading = false,
-  onNewRecordReceived,
   onRecordUpdated,
 }) => {
   // Navigation View: 'feed' or 'matrix'
@@ -58,35 +55,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Accordion Expand/Collapse State for Deployment Audit Log
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
-
-  // Real-time Supabase subscription
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    try {
-      const channel = supabase
-        .channel('schema-db-changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'ReleaseRecord' },
-          (payload) => {
-            if (payload.eventType === 'INSERT' && payload.new && onNewRecordReceived) {
-              onNewRecordReceived(payload.new as ReleaseRecord);
-            } else if (payload.eventType === 'UPDATE' && payload.new && onRecordUpdated) {
-              onRecordUpdated(payload.new as ReleaseRecord);
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } catch (err) {
-      console.warn('Real-time subscription notice:', err);
-    }
-  }, [onNewRecordReceived, onRecordUpdated]);
 
   const handleEditClick = (record: ReleaseRecord) => {
     setEditingRecord(record);
