@@ -243,18 +243,23 @@ export default function App() {
     }
   }, []);
 
-  const handleNewRecord = (incoming: ReleaseRecord | ReleaseRecord[]) => {
+  // Load live data from the API on initial mount instead of showing mock data
+  useEffect(() => {
+    fetchRecords();
+  }, []);
+
+  const handleNewRecord = useCallback((incoming: ReleaseRecord | ReleaseRecord[]) => {
     const list = Array.isArray(incoming) ? incoming : [incoming];
     const incomingIds = new Set(list.map((r) => r.id));
     setRecords((prev) => [...list, ...prev.filter((r) => !incomingIds.has(r.id))]);
     setCurrentPath('/');
-  };
+  }, []);
 
-  const handleRecordUpdated = (updatedRecord: ReleaseRecord) => {
+  const handleRecordUpdated = useCallback((updatedRecord: ReleaseRecord) => {
     setRecords((prev) =>
       prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r))
     );
-  };
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-300 flex flex-col font-sans selection:bg-emerald-950 selection:text-emerald-300">
@@ -276,7 +281,6 @@ export default function App() {
             onAddRecord={() => setCurrentPath('/add')}
             onRefresh={fetchRecords}
             isLoading={isLoading}
-            onNewRecordReceived={handleNewRecord}
             onRecordUpdated={handleRecordUpdated}
           />
         )}

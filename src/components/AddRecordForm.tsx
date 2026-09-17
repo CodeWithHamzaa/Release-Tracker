@@ -251,7 +251,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
     try {
       const token =
         apiSecretKey ||
-        process.env.NEXT_PUBLIC_API_SECRET_KEY ||
+        import.meta.env.VITE_API_SECRET_KEY ||
         'your-enterprise-release-api-secret';
 
       const res = await fetch('/api/records', {
