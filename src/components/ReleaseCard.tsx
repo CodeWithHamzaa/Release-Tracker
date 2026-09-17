@@ -217,8 +217,18 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
               {record.service}
             </span>
           </div>
-          {/* Secondary line carries dev + time on small screens */}
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500 md:hidden">
+          {/* Below md the pills on the right are hidden, so this line carries
+              environment and version too — they stay glanceable on a phone. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500 md:hidden">
+            <span
+              className={`rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider ${envStyles(
+                record.environment
+              )}`}
+            >
+              {record.environment}
+            </span>
+            <span className="font-mono text-zinc-400">{record.version || '—'}</span>
+            <span>·</span>
             <span className="truncate">{developer}</span>
             <span>·</span>
             <span className="whitespace-nowrap">{created.relative}</span>
@@ -227,7 +237,7 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
 
         {/* Environment pill */}
         <span
-          className={`hidden flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline-block ${envStyles(
+          className={`hidden flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider md:inline-block ${envStyles(
             record.environment
           )}`}
         >
@@ -235,7 +245,7 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
         </span>
 
         {/* Version */}
-        <span className="hidden flex-shrink-0 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1 font-mono text-xs font-medium text-zinc-300 sm:inline-block">
+        <span className="hidden flex-shrink-0 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1 font-mono text-xs font-medium text-zinc-300 md:inline-block">
           {record.version || '—'}
         </span>
 
@@ -273,21 +283,12 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
         >
           {/* Action row */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${statusStyle.chip}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-                {status}
-              </span>
-              <span
-                className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider sm:hidden ${envStyles(
-                  record.environment
-                )}`}
-              >
-                {record.environment}
-              </span>
-            </div>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${statusStyle.chip}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+              {status}
+            </span>
 
             {onEdit && (
               <button
