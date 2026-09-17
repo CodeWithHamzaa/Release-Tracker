@@ -9,14 +9,12 @@ import {
   Check,
   Code2,
   X,
-  Server,
-  User,
-  SlidersHorizontal,
+  ChevronDown,
   Table,
   CheckCircle2,
   AlertTriangle,
-  Tag,
   ArrowRight,
+  Filter,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
 import { ReleaseCard } from './ReleaseCard';
@@ -31,6 +29,81 @@ interface DashboardViewProps {
   onRecordUpdated?: (record: ReleaseRecord) => void;
 }
 
+type EnvFilter = 'All' | 'SIT' | 'UAT' | 'Prod';
+type StatusFilter = 'All' | 'SUCCESS' | 'PENDING' | 'FAILED';
+type UserFilter = 'All' | 'A.Hameed' | 'Hanzala';
+
+/**
+ * Native <select> in a dark shell. Native keeps keyboard/mobile behaviour and
+ * screen-reader semantics for free; the chevron is drawn by us so it matches
+ * the rest of the theme.
+ */
+const FilterSelect = <T extends string>({
+  id,
+  label,
+  allLabel,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  /** Wording for the "All" option — spelled out rather than pluralizing `label`. */
+  allLabel: string;
+  value: T;
+  options: readonly T[];
+  onChange: (value: T) => void;
+}) => (
+  <div className="flex flex-col gap-1.5">
+    <label
+      htmlFor={id}
+      className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
+    >
+      {label}
+    </label>
+    <div className="relative">
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="w-full cursor-pointer appearance-none rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-3 pr-9 text-sm font-medium text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.05] focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt} className="bg-[#111111] text-zinc-200">
+            {opt === 'All' ? allLabel : opt}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+    </div>
+  </div>
+);
+
+/** Version chip in the drift matrix. Highlighted when it diverges from the row baseline. */
+const MatrixVersion: React.FC<{
+  version: string | null;
+  diverges: boolean;
+  onClick?: () => void;
+}> = ({ version, diverges, onClick }) => {
+  if (!version) {
+    return <span className="font-mono text-xs text-zinc-700">—</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={diverges ? `${version} — differs from the rest of this row` : version}
+      className={`rounded-md border px-2 py-1 font-mono text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
+        diverges
+          ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60'
+          : 'border-white/5 bg-white/[0.03] text-zinc-100 hover:border-white/20'
+      }`}
+    >
+      {version}
+    </button>
+  );
+};
+
 export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
   onAddRecord,
@@ -38,22 +111,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isLoading = false,
   onRecordUpdated,
 }) => {
-  // Navigation View: 'feed' or 'matrix'
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
-  // Search & Filter State - SIT is default environment as requested
+  // Filters. Environment defaults to SIT, matching the previously requested behaviour.
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEnv, setSelectedEnv] = useState<'All' | 'Prod' | 'UAT' | 'SIT'>('SIT');
-  const [selectedStatus, setSelectedStatus] = useState<'All' | 'SUCCESS' | 'PENDING' | 'FAILED'>('All');
-  const [selectedUser, setSelectedUser] = useState<'All' | 'A.Hameed' | 'Hanzala'>('All');
+  const [selectedEnv, setSelectedEnv] = useState<EnvFilter>('SIT');
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('All');
+  const [selectedUser, setSelectedUser] = useState<UserFilter>('All');
+
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [showApiHelper, setShowApiHelper] = useState(false);
 
-  // Edit Modal State
   const [editingRecord, setEditingRecord] = useState<ReleaseRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  // Accordion Expand/Collapse State for Deployment Audit Log
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
   const handleEditClick = (record: ReleaseRecord) => {
@@ -62,20 +132,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleUpdateSuccess = (updatedRecord: ReleaseRecord) => {
-    if (onRecordUpdated) {
-      onRecordUpdated(updatedRecord);
-    }
+    onRecordUpdated?.(updatedRecord);
   };
 
-  // Environment Drift Matrix Computation
-  // CRITICAL REQUIREMENT: Must ONLY display the latest version of records where status === 'SUCCESS'
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSelectedEnv('All');
+    setSelectedStatus('All');
+    setSelectedUser('All');
+  };
+
+  const hasActiveFilters =
+    searchQuery.trim() !== '' ||
+    selectedEnv !== 'All' ||
+    selectedStatus !== 'All' ||
+    selectedUser !== 'All';
+
+  // ── Environment Drift Matrix ───────────────────────────────────────────────
+  // Shows ONLY the latest record per environment where status === 'SUCCESS'.
   const matrixData = useMemo(() => {
-    // 1. Filter ONLY records where status === 'SUCCESS'
     const successRecords = records.filter(
       (r) => String(r.status || '').toUpperCase() === 'SUCCESS'
     );
 
-    // 2. Sort by creation date descending to ensure first match is the latest
     const sorted = [...successRecords].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
@@ -90,7 +169,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     const serviceMap = new Map<string, ServiceMatrixEntry>();
 
-    // Also include services from all records so services without success still appear in matrix
+    // Seed from all records so services without a SUCCESS release still appear.
     records.forEach((r) => {
       const key = `${r.server}::${r.service}`;
       if (!serviceMap.has(key)) {
@@ -98,109 +177,116 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     });
 
-    // Populate latest SUCCESS record per environment
     for (const r of sorted) {
       const key = `${r.server}::${r.service}`;
-      const entry: ServiceMatrixEntry = serviceMap.get(key) || { server: r.server, service: r.service };
+      const entry: ServiceMatrixEntry =
+        serviceMap.get(key) || { server: r.server, service: r.service };
       const envUpper = (r.environment || '').toUpperCase();
 
-      if (envUpper.includes('SIT') && !entry.sitRecord) {
-        entry.sitRecord = r;
-      } else if (envUpper.includes('UAT') && !entry.uatRecord) {
-        entry.uatRecord = r;
-      } else if (envUpper.includes('PROD') && !entry.prodRecord) {
-        entry.prodRecord = r;
-      }
+      if (envUpper.includes('SIT') && !entry.sitRecord) entry.sitRecord = r;
+      else if (envUpper.includes('UAT') && !entry.uatRecord) entry.uatRecord = r;
+      else if (envUpper.includes('PROD') && !entry.prodRecord) entry.prodRecord = r;
+
       serviceMap.set(key, entry);
     }
 
     return Array.from(serviceMap.values()).map((item) => {
-      const sitVer = item.sitRecord?.version;
-      const uatVer = item.uatRecord?.version;
-      const prodVer = item.prodRecord?.version;
+      const sitVersion = item.sitRecord?.version || null;
+      const uatVersion = item.uatRecord?.version || null;
+      const prodVersion = item.prodRecord?.version || null;
 
-      const activeVersions = [sitVer, uatVer, prodVer].filter(Boolean) as string[];
+      const activeVersions = [sitVersion, uatVersion, prodVersion].filter(Boolean) as string[];
       const uniqueVersions = Array.from(new Set(activeVersions));
 
       let syncStatus: 'IN_SYNC' | 'DRIFT_DETECTED' | 'NO_RELEASES' = 'NO_RELEASES';
-      if (activeVersions.length > 1 && uniqueVersions.length > 1) {
-        syncStatus = 'DRIFT_DETECTED';
-      } else if (activeVersions.length > 0) {
-        syncStatus = 'IN_SYNC';
+      if (activeVersions.length > 1 && uniqueVersions.length > 1) syncStatus = 'DRIFT_DETECTED';
+      else if (activeVersions.length > 0) syncStatus = 'IN_SYNC';
+
+      // Baseline = the version the row is measured against; everything else is drift.
+      // Most frequent version wins. On a tie, prefer Prod, then UAT, then SIT, so the
+      // highlight reads as "this differs from production" rather than picking arbitrarily.
+      let baseline: string | null = null;
+      if (activeVersions.length > 0) {
+        const counts = new Map<string, number>();
+        activeVersions.forEach((v) => counts.set(v, (counts.get(v) || 0) + 1));
+        const topCount = Math.max(...counts.values());
+        const tied = Array.from(counts.entries())
+          .filter(([, count]) => count === topCount)
+          .map(([version]) => version);
+        baseline =
+          [prodVersion, uatVersion, sitVersion].find((v) => v && tied.includes(v)) ?? tied[0];
       }
+
+      const diverges = (v: string | null) =>
+        syncStatus === 'DRIFT_DETECTED' && v !== null && v !== baseline;
 
       return {
         ...item,
-        sitVersion: sitVer || null,
-        uatVersion: uatVer || null,
-        prodVersion: prodVer || null,
+        sitVersion,
+        uatVersion,
+        prodVersion,
         syncStatus,
+        sitDiverges: diverges(sitVersion),
+        uatDiverges: diverges(uatVersion),
+        prodDiverges: diverges(prodVersion),
       };
     });
   }, [records]);
 
-  // Filtering records for the Feed view
-  const filteredRecords = records.filter((r) => {
-    // Environment filter
-    if (selectedEnv !== 'All') {
-      if (r.environment.toUpperCase() !== selectedEnv.toUpperCase()) {
-        return false;
-      }
-    }
+  const driftCount = useMemo(
+    () => matrixData.filter((r) => r.syncStatus === 'DRIFT_DETECTED').length,
+    [matrixData]
+  );
 
-    // Status filter - Strict uppercase standard
-    if (selectedStatus !== 'All') {
-      const recStatus = String(r.status || 'PENDING').toUpperCase();
-      if (recStatus !== selectedStatus) {
-        return false;
-      }
-    }
+  // ── Feed filtering ─────────────────────────────────────────────────────────
+  const filteredRecords = useMemo(() => {
+    const tokens = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
-    // User filter
-    if (selectedUser !== 'All') {
-      const rUser = (r.added_by || '').toLowerCase();
-      const sUser = selectedUser.toLowerCase();
-      if (!rUser.includes(sUser) && !sUser.includes(rUser)) {
-        return false;
-      }
-    }
+    return records
+      .filter((r) => {
+        if (selectedEnv !== 'All' && r.environment.toUpperCase() !== selectedEnv.toUpperCase()) {
+          return false;
+        }
 
-    // Search query: filtering by service, environment, developer name, server, or notes
-    if (searchQuery.trim()) {
-      const tokens = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const matchesAllTokens = tokens.every((token) => {
-        const matchService = r.service.toLowerCase().includes(token);
-        const matchEnv = r.environment.toLowerCase().includes(token);
-        const matchDev = (r.developerName || '').toLowerCase().includes(token);
-        const matchServer = r.server.toLowerCase().includes(token);
-        const matchStatus = (r.status || '').toLowerCase().includes(token);
-        const matchVersion = (r.version || '').toLowerCase().includes(token);
-        const matchNote = r.note?.toLowerCase().includes(token) || false;
-        const matchUser = r.added_by.toLowerCase().includes(token);
+        if (selectedStatus !== 'All') {
+          if (String(r.status || 'PENDING').toUpperCase() !== selectedStatus) return false;
+        }
 
-        return (
-          matchService ||
-          matchEnv ||
-          matchDev ||
-          matchServer ||
-          matchStatus ||
-          matchVersion ||
-          matchNote ||
-          matchUser
-        );
-      });
+        if (selectedUser !== 'All') {
+          const rUser = (r.added_by || '').toLowerCase();
+          const sUser = selectedUser.toLowerCase();
+          if (!rUser.includes(sUser) && !sUser.includes(rUser)) return false;
+        }
 
-      if (!matchesAllTokens) {
-        return false;
-      }
-    }
+        if (tokens.length > 0) {
+          const haystack = [
+            r.service,
+            r.server,
+            r.environment,
+            r.developerName,
+            r.status,
+            r.version,
+            r.note,
+            r.added_by,
+            r.source,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
 
-    return true;
-  });
+          if (!tokens.every((token) => haystack.includes(token))) return false;
+        }
 
-  const curlSnippet = `curl -X POST "${typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'}/api/records" \\
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [records, searchQuery, selectedEnv, selectedStatus, selectedUser]);
+
+  const curlSnippet = `curl -X POST "${
+    typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'
+  }/api/records" \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer your-enterprise-release-api-secret" \\
+  -H "Authorization: Bearer $API_SECRET_KEY" \\
   -d '{
     "environment": "Prod",
     "server": "Bot-Builder",
@@ -220,503 +306,346 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setTimeout(() => setCopiedCurl(false), 2000);
   };
 
+  const tabClass = (active: boolean) =>
+    `inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
+      active
+        ? 'bg-white/[0.06] text-white'
+        : 'text-zinc-500 hover:bg-white/[0.02] hover:text-zinc-300'
+    }`;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Top Header & Primary Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-zinc-800/80 mb-6">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* ── Page header ── */}
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="flex items-center space-x-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-              Enterprise Release Tracker
-            </h1>
-          </div>
-          <p className="mt-1 text-sm text-zinc-400">
-            Real-time deployment audit log & cross-environment version matrix.
+          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+            Release Tracker
+          </h1>
+          <p className="mt-1.5 text-sm text-zinc-500">
+            Deployment audit log and cross-environment version matrix.
           </p>
         </div>
 
-        <div className="flex items-center space-x-2.5">
+        <div className="flex flex-shrink-0 items-center gap-2">
           <button
             id="btn-show-api-info"
-            onClick={() => setShowApiHelper(!showApiHelper)}
-            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-zinc-300 bg-[#111111] hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-colors"
+            onClick={() => setShowApiHelper((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
           >
-            <Code2 className="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
-            CLI / API Spec
+            <Code2 className="h-3.5 w-3.5" />
+            API
           </button>
           <button
             id="btn-refresh-feed"
             onClick={onRefresh}
             disabled={isLoading}
-            className="p-2 text-zinc-400 hover:text-white bg-[#111111] hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-colors disabled:opacity-50"
             title="Refresh feed"
+            className="inline-flex items-center rounded-lg border border-white/10 bg-white/[0.03] p-2 text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-emerald-400' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
           <button
             id="btn-add-record-top"
             onClick={onAddRecord}
-            className="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-lg shadow-emerald-950/40 transition-all"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
           >
-            <Plus className="w-4 h-4 mr-1.5" />
+            <Plus className="h-4 w-4" />
             Log Release
           </button>
         </div>
       </div>
 
-      {/* CLI / API cURL Helper Dropdown */}
+      {/* ── API helper ── */}
       {showApiHelper && (
-        <div className="mb-6 p-5 bg-[#111111] rounded-2xl border border-zinc-800 text-slate-200 shadow-2xl animate-in fade-in duration-150">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-2">
-              <Terminal className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                Write-Path Endpoint (POST /api/records) with Version & Uppercase Status
-              </span>
-            </div>
+        <div className="animate-panel mb-6 rounded-xl border border-white/5 bg-[#111111] p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
+              POST /api/records
+            </span>
             <button
               id="btn-copy-curl-code"
               onClick={handleCopyCurl}
-              className="inline-flex items-center px-3 py-1 text-xs text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded-lg border border-zinc-700 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
             >
               {copiedCurl ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400 mr-1" />
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
                   <span className="text-emerald-400">Copied</span>
                 </>
               ) : (
                 <>
-                  <Copy className="w-3.5 h-3.5 mr-1" />
-                  <span>Copy cURL</span>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
                 </>
               )}
             </button>
           </div>
-          <pre className="text-xs font-mono text-emerald-400 bg-black/60 p-4 rounded-xl overflow-x-auto whitespace-pre-wrap border border-zinc-800">
+          <pre className="scrollbar-subtle overflow-x-auto rounded-lg border border-white/5 bg-black/60 p-4 font-mono text-[11px] leading-relaxed text-emerald-400">
             {curlSnippet}
           </pre>
         </div>
       )}
 
-      {/* Top Search Bar */}
-      <div className="bg-[#111111] rounded-2xl border border-zinc-800 shadow-xl p-4 mb-6">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-            <Search className="w-5 h-5 text-emerald-400" />
-          </div>
-          <input
-            id="input-top-search"
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search records by service, environment (Prod, UAT, SIT), developer name, or version..."
-            className="w-full pl-11 pr-10 py-2.5 sm:py-3 bg-[#18181b] hover:bg-[#1f1f23] focus:bg-[#18181b] border border-zinc-800 focus:border-emerald-500 rounded-xl text-sm sm:text-base text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-          />
-          {searchQuery && (
-            <button
-              id="btn-clear-top-search"
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-500 hover:text-white transition-colors"
-              title="Clear search"
+      {/* ── Stats ── */}
+      <StatsBar records={records} />
+
+      {/* ── Filter bar ── */}
+      <div className="mb-6 rounded-xl border border-white/5 bg-[#111111] p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+          {/* Search */}
+          <div className="flex flex-col gap-1.5 md:col-span-5">
+            <label
+              htmlFor="input-top-search"
+              className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
             >
-              <X className="w-4 h-4" />
+              Search
+            </label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                id="input-top-search"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Service, server, or developer..."
+                className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-9 pr-9 text-sm text-white placeholder-zinc-600 transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              {searchQuery && (
+                <button
+                  id="btn-clear-top-search"
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  title="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="md:col-span-2">
+            <FilterSelect
+              id="select-filter-env"
+              label="Environment"
+              allLabel="All environments"
+              value={selectedEnv}
+              options={['All', 'SIT', 'UAT', 'Prod'] as const}
+              onChange={setSelectedEnv}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <FilterSelect
+              id="select-filter-status"
+              label="Status"
+              allLabel="All statuses"
+              value={selectedStatus}
+              options={['All', 'SUCCESS', 'PENDING', 'FAILED'] as const}
+              onChange={setSelectedStatus}
+            />
+          </div>
+
+          <div className="md:col-span-3">
+            <FilterSelect
+              id="select-filter-user"
+              label="Logged by"
+              allLabel="Anyone"
+              value={selectedUser}
+              options={['All', 'A.Hameed', 'Hanzala'] as const}
+              onChange={setSelectedUser}
+            />
+          </div>
+        </div>
+
+        {/* Result count + active filter reset */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-3 text-xs">
+          <span className="text-zinc-500">
+            Showing <strong className="font-semibold text-white">{filteredRecords.length}</strong>{' '}
+            of {records.length} records
+          </span>
+          {hasActiveFilters && (
+            <button
+              id="btn-reset-filters"
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 font-medium text-zinc-400 transition-colors hover:border-white/20 hover:text-white"
+            >
+              <Filter className="h-3 w-3" />
+              Clear filters
             </button>
           )}
         </div>
-
-        {/* Quick Filter Search Hints */}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-            <span className="font-semibold text-zinc-500 uppercase tracking-wider text-[11px]">
-              Quick filter:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSearchQuery('bot-builder-api')}
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-zinc-800/80 text-zinc-300 hover:text-white hover:bg-zinc-700 border border-zinc-700/60 transition-colors"
-            >
-              <Server className="w-3 h-3 text-emerald-400" />
-              <span>bot-builder-api</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchQuery('Prod')}
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-950/40 text-rose-300 hover:bg-rose-900/50 border border-rose-800/50 transition-colors"
-            >
-              <Layers className="w-3 h-3 text-rose-400" />
-              <span>Prod</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchQuery('Sufyan')}
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 border border-emerald-800/50 transition-colors"
-            >
-              <User className="w-3 h-3 text-emerald-400" />
-              <span>Sufyan</span>
-            </button>
-          </div>
-
-          <div className="text-zinc-400 font-medium">
-            {searchQuery.trim() || selectedEnv !== 'All' || selectedStatus !== 'All' || selectedUser !== 'All' ? (
-              <span>
-                Showing <strong className="text-emerald-400 font-bold">{filteredRecords.length}</strong> of{' '}
-                {records.length} records{selectedEnv !== 'All' && <span className="text-blue-400 font-semibold ml-1">({selectedEnv})</span>}
-              </span>
-            ) : (
-              <span>{records.length} total releases logged</span>
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* Analytics & Stats Bar */}
-      <StatsBar records={records} />
-
-      {/* View Switcher Tabs: Activity Feed vs Environment Drift Matrix */}
-      <div className="flex items-center space-x-2 mb-6 border-b border-zinc-800/80 pb-3">
-        <button
-          id="tab-activity-feed"
-          onClick={() => setActiveTab('feed')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'feed'
-              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/40'
-              : 'bg-[#111111] text-zinc-400 hover:text-white border border-zinc-800'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Deployment Audit Log</span>
-          <span className="ml-1.5 px-2 py-0.5 rounded-full text-[11px] bg-black/40 text-zinc-200">
+      {/* ── Tabs ── */}
+      <div className="mb-5 flex items-center gap-1 border-b border-white/5 pb-3">
+        <button id="tab-activity-feed" onClick={() => setActiveTab('feed')} className={tabClass(activeTab === 'feed')}>
+          <Layers className="h-4 w-4" />
+          Audit Log
+          <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-400">
             {filteredRecords.length}
           </span>
         </button>
-
-        <button
-          id="tab-drift-matrix"
-          onClick={() => setActiveTab('matrix')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === 'matrix'
-              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/40'
-              : 'bg-[#111111] text-zinc-400 hover:text-white border border-zinc-800'
-          }`}
-        >
-          <Table className="w-4 h-4" />
-          <span>Environment Drift Matrix</span>
-          <span className="ml-1.5 px-2 py-0.5 rounded-full text-[11px] bg-black/40 text-emerald-300">
-            SUCCESS Only
-          </span>
+        <button id="tab-drift-matrix" onClick={() => setActiveTab('matrix')} className={tabClass(activeTab === 'matrix')}>
+          <Table className="h-4 w-4" />
+          Drift Matrix
+          {driftCount > 0 && (
+            <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">
+              {driftCount}
+            </span>
+          )}
         </button>
       </div>
 
-      {/* TAB 1: ENVIRONMENT DRIFT MATRIX */}
+      {/* ── TAB: Drift matrix ── */}
       {activeTab === 'matrix' && (
-        <div className="bg-[#111111] rounded-2xl border border-zinc-800 shadow-2xl p-5 sm:p-6 mb-8 animate-in fade-in duration-150">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800/80 mb-5">
+        <div className="animate-panel overflow-hidden rounded-xl border border-white/5 bg-[#111111]">
+          <div className="flex flex-col gap-3 border-b border-white/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="flex items-center space-x-2">
-                <Table className="w-5 h-5 text-emerald-400" />
-                <h2 className="text-lg font-bold text-white tracking-tight">
-                  Environment Drift Matrix
-                </h2>
-              </div>
-              <p className="text-xs text-zinc-400 mt-1">
-                Displays <strong>ONLY</strong> the latest version of records where{' '}
-                <code className="text-emerald-400 font-semibold">status === 'SUCCESS'</code>.
-                Identifies version divergence between SIT, UAT, and Production.
+              <h2 className="text-sm font-semibold tracking-tight text-white">
+                Environment Drift Matrix
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Latest <span className="font-mono text-emerald-400">SUCCESS</span> release per
+                environment. Amber marks a version that diverges from the rest of its row.
               </p>
             </div>
-            <div className="flex items-center space-x-3 text-xs">
-              <span className="inline-flex items-center space-x-1 text-emerald-400">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>In Sync</span>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                In sync
               </span>
-              <span className="inline-flex items-center space-x-1 text-amber-400">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Drift Detected</span>
+              <span className="inline-flex items-center gap-1.5 text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Drift
               </span>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="scrollbar-subtle overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  <th className="pb-3 pr-4">Server / Service</th>
-                  <th className="pb-3 px-4">
-                    <span className="px-2 py-0.5 rounded bg-blue-950/40 text-blue-300 border border-blue-800/40">
-                      SIT
-                    </span>
-                  </th>
-                  <th className="pb-3 px-4">
-                    <span className="px-2 py-0.5 rounded bg-purple-950/40 text-purple-300 border border-purple-800/40">
-                      UAT
-                    </span>
-                  </th>
-                  <th className="pb-3 px-4">
-                    <span className="px-2 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-800/40">
-                      Prod
-                    </span>
-                  </th>
-                  <th className="pb-3 pl-4 text-right">Drift Status</th>
+                <tr className="border-b border-white/5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <th className="py-3 pl-5 pr-4">Service</th>
+                  <th className="px-4 py-3">SIT</th>
+                  <th className="px-4 py-3">UAT</th>
+                  <th className="px-4 py-3">Prod</th>
+                  <th className="py-3 pl-4 pr-5 text-right">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/60">
-                {matrixData.map((row) => (
-                  <tr key={`${row.server}-${row.service}`} className="hover:bg-zinc-800/20 transition-colors">
-                    {/* Service & Server Column */}
-                    <td className="py-3.5 pr-4">
-                      <div className="font-semibold text-white">{row.service}</div>
-                      <div className="text-xs font-mono text-zinc-500">{row.server}</div>
-                    </td>
-
-                    {/* SIT Cell */}
-                    <td className="py-3.5 px-4">
-                      {row.sitVersion ? (
-                        <div
-                          onClick={() => row.sitRecord && handleEditClick(row.sitRecord)}
-                          className="cursor-pointer group inline-flex flex-col"
-                          title="Click to view/edit SIT release"
-                        >
-                          <span className="inline-flex items-center space-x-1 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-blue-950/30 text-blue-300 border border-blue-800/40 group-hover:border-blue-500">
-                            <Tag className="w-3 h-3 text-blue-400" />
-                            <span>{row.sitVersion}</span>
-                          </span>
-                          <span className="text-[10px] text-zinc-500 mt-0.5">
-                            by {row.sitRecord?.developerName || 'Dev'}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-600 font-mono">—</span>
-                      )}
-                    </td>
-
-                    {/* UAT Cell */}
-                    <td className="py-3.5 px-4">
-                      {row.uatVersion ? (
-                        <div
-                          onClick={() => row.uatRecord && handleEditClick(row.uatRecord)}
-                          className="cursor-pointer group inline-flex flex-col"
-                          title="Click to view/edit UAT release"
-                        >
-                          <span className="inline-flex items-center space-x-1 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-purple-950/30 text-purple-300 border border-purple-800/40 group-hover:border-purple-500">
-                            <Tag className="w-3 h-3 text-purple-400" />
-                            <span>{row.uatVersion}</span>
-                          </span>
-                          <span className="text-[10px] text-zinc-500 mt-0.5">
-                            by {row.uatRecord?.developerName || 'Dev'}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-600 font-mono">—</span>
-                      )}
-                    </td>
-
-                    {/* Prod Cell */}
-                    <td className="py-3.5 px-4">
-                      {row.prodVersion ? (
-                        <div
-                          onClick={() => row.prodRecord && handleEditClick(row.prodRecord)}
-                          className="cursor-pointer group inline-flex flex-col"
-                          title="Click to view/edit Prod release"
-                        >
-                          <span className="inline-flex items-center space-x-1 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-emerald-950/30 text-emerald-300 border border-emerald-800/40 group-hover:border-emerald-500">
-                            <Tag className="w-3 h-3 text-emerald-400" />
-                            <span>{row.prodVersion}</span>
-                          </span>
-                          <span className="text-[10px] text-zinc-500 mt-0.5">
-                            by {row.prodRecord?.developerName || 'Dev'}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-600 font-mono">—</span>
-                      )}
-                    </td>
-
-                    {/* Drift Status Indicator */}
-                    <td className="py-3.5 pl-4 text-right">
-                      {row.syncStatus === 'IN_SYNC' && (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-950/40 text-emerald-400 border border-emerald-800/40">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>In Sync</span>
-                        </span>
-                      )}
-                      {row.syncStatus === 'DRIFT_DETECTED' && (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-950/40 text-amber-400 border border-amber-800/40">
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          <span>Drift Detected</span>
-                        </span>
-                      )}
-                      {row.syncStatus === 'NO_RELEASES' && (
-                        <span className="text-xs text-zinc-600">No Success Releases</span>
-                      )}
+              <tbody className="divide-y divide-white/5">
+                {matrixData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-12 text-center text-sm text-zinc-500">
+                      No services tracked yet.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  matrixData.map((row) => (
+                    <tr
+                      key={`${row.server}-${row.service}`}
+                      className="transition-colors hover:bg-white/[0.02]"
+                    >
+                      <td className="py-3.5 pl-5 pr-4">
+                        <div className="font-mono text-sm font-medium text-white">
+                          {row.service}
+                        </div>
+                        <div className="mt-0.5 text-xs text-zinc-500">{row.server}</div>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <MatrixVersion
+                          version={row.sitVersion}
+                          diverges={row.sitDiverges}
+                          onClick={() => row.sitRecord && handleEditClick(row.sitRecord)}
+                        />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <MatrixVersion
+                          version={row.uatVersion}
+                          diverges={row.uatDiverges}
+                          onClick={() => row.uatRecord && handleEditClick(row.uatRecord)}
+                        />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <MatrixVersion
+                          version={row.prodVersion}
+                          diverges={row.prodDiverges}
+                          onClick={() => row.prodRecord && handleEditClick(row.prodRecord)}
+                        />
+                      </td>
+
+                      <td className="py-3.5 pl-4 pr-5 text-right">
+                        {row.syncStatus === 'IN_SYNC' && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+                            <CheckCircle2 className="h-3 w-3" />
+                            In sync
+                          </span>
+                        )}
+                        {row.syncStatus === 'DRIFT_DETECTED' && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300">
+                            <AlertTriangle className="h-3 w-3" />
+                            Drift
+                          </span>
+                        )}
+                        {row.syncStatus === 'NO_RELEASES' && (
+                          <span className="text-[11px] text-zinc-600">No releases</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* TAB 2: RELEASE ACTIVITY FEED */}
+      {/* ── TAB: Audit log feed ── */}
       {activeTab === 'feed' && (
         <>
-          {/* Quick Filter Attributes Toolbar */}
-          <div className="bg-[#111111] p-4 rounded-2xl border border-zinc-800 shadow-xl mb-6 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center space-x-2">
-                <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                  Filter Attributes
-                </span>
-              </div>
-
-              {/* Logged By User Filter */}
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-shrink-0">
-                  Logged By:
-                </span>
-                <div className="inline-flex rounded-xl p-1 bg-[#18181b] border border-zinc-800 text-xs font-medium">
-                  {(['All', 'A.Hameed', 'Hanzala'] as const).map((usr) => (
-                    <button
-                      key={usr}
-                      id={`btn-filter-user-${usr.replace('.', '')}`}
-                      onClick={() => setSelectedUser(usr)}
-                      className={`px-3 py-1 rounded-lg transition-colors ${
-                        selectedUser === usr
-                          ? 'bg-zinc-800 text-white font-bold shadow-xs'
-                          : 'text-zinc-400 hover:text-white'
-                      }`}
-                    >
-                      {usr}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Filter Pills: Environment & Strict Uppercase Status */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800/80 text-xs">
-              {/* Environment Filter Pills */}
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
-                <span className="font-semibold text-zinc-400 uppercase tracking-wider">
-                  Environment:
-                </span>
-                <div className="flex items-center space-x-1.5">
-                  {(['All', 'Prod', 'UAT', 'SIT'] as const).map((env) => {
-                    const isActive = selectedEnv === env;
-                    let activeStyle = 'bg-emerald-600 text-white';
-                    if (env === 'Prod') activeStyle = 'bg-rose-600 text-white';
-                    if (env === 'UAT') activeStyle = 'bg-purple-600 text-white';
-                    if (env === 'SIT') activeStyle = 'bg-blue-600 text-white';
-
-                    return (
-                      <button
-                        key={env}
-                        id={`btn-filter-env-${env}`}
-                        onClick={() => setSelectedEnv(env)}
-                        className={`px-3 py-1 rounded-xl font-semibold transition-all ${
-                          isActive
-                            ? activeStyle
-                            : 'bg-[#18181b] text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-white'
-                        }`}
-                      >
-                        {env === 'All' ? 'All Envs' : env}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Status Filter Pills - Strictly Uppercase Standard */}
-              <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
-                <span className="font-semibold text-zinc-400 uppercase tracking-wider">
-                  Status:
-                </span>
-                <div className="flex items-center space-x-1.5">
-                  {(['All', 'SUCCESS', 'PENDING', 'FAILED'] as const).map((st) => {
-                    const isActive = selectedStatus === st;
-                    let activeStyle = 'bg-zinc-700 text-white';
-                    if (st === 'SUCCESS') activeStyle = 'bg-emerald-600 text-white';
-                    if (st === 'PENDING') activeStyle = 'bg-amber-600 text-white';
-                    if (st === 'FAILED') activeStyle = 'bg-rose-600 text-white';
-
-                    return (
-                      <button
-                        key={st}
-                        id={`btn-filter-status-${st}`}
-                        onClick={() => setSelectedStatus(st)}
-                        className={`px-3 py-1 rounded-xl font-semibold transition-all ${
-                          isActive
-                            ? activeStyle
-                            : 'bg-[#18181b] text-zinc-400 border border-zinc-800 hover:bg-zinc-800 hover:text-white'
-                        }`}
-                      >
-                        {st === 'All' ? 'All Statuses' : st}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Feed List or Empty State */}
           {filteredRecords.length === 0 ? (
-            <div className="bg-[#111111] rounded-2xl border border-zinc-800 p-12 text-center shadow-xl">
-              <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-500 flex items-center justify-center mx-auto mb-4">
-                <Layers className="w-6 h-6" />
+            <div className="rounded-xl border border-white/5 bg-[#111111] px-6 py-16 text-center">
+              <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-white/5 bg-white/[0.03] text-zinc-600">
+                <Layers className="h-5 w-5" />
               </div>
-              <h3 className="text-base sm:text-lg font-bold text-white">
-                No Release Records Found
-              </h3>
-              <p className="mt-1 text-sm text-zinc-400 max-w-sm mx-auto">
-                No releases match your current active filters. Try resetting search or status filters.
+              <h3 className="text-base font-semibold text-white">No releases found</h3>
+              <p className="mx-auto mt-1.5 max-w-sm text-sm text-zinc-500">
+                {hasActiveFilters
+                  ? 'No releases match the current filters.'
+                  : 'Nothing has been logged yet.'}
               </p>
-              <div className="mt-5">
+              {hasActiveFilters && (
                 <button
-                  id="btn-reset-filters"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedEnv('All');
-                    setSelectedStatus('All');
-                    setSelectedUser('All');
-                  }}
-                  className="inline-flex items-center px-4 py-2 text-xs font-semibold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 hover:text-white rounded-xl transition-colors"
+                  type="button"
+                  onClick={resetFilters}
+                  className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
                 >
-                  Reset All Filters
+                  Clear filters
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </button>
-              </div>
+              )}
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-zinc-400 px-1">
-                <span>
-                  Showing <strong className="text-white">{filteredRecords.length}</strong> of{' '}
-                  {records.length} deployment records
-                </span>
-                <span className="text-zinc-500 text-[11px]">Click any row to expand details</span>
-              </div>
-              <div className="space-y-2.5">
-                {filteredRecords.map((record) => (
-                  <ReleaseCard
-                    key={record.id}
-                    record={record}
-                    isExpanded={expandedRowId === record.id}
-                    onToggle={() =>
-                      setExpandedRowId((prev) => (prev === record.id ? null : record.id))
-                    }
-                    onEdit={handleEditClick}
-                  />
-                ))}
-              </div>
+            <div className="space-y-2">
+              {filteredRecords.map((record) => (
+                <ReleaseCard
+                  key={record.id}
+                  record={record}
+                  isExpanded={expandedRowId === record.id}
+                  onToggle={() =>
+                    setExpandedRowId((prev) => (prev === record.id ? null : record.id))
+                  }
+                  onEdit={handleEditClick}
+                />
+              ))}
             </div>
           )}
         </>
       )}
 
-      {/* Dark-themed Shadcn-style Edit Record Modal */}
       <EditRecordModal
         record={editingRecord}
         isOpen={isEditModalOpen}
