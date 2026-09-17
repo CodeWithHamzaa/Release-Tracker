@@ -113,9 +113,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
-  // Filters. Environment defaults to SIT, matching the previously requested behaviour.
+  // Filters start unset so the initial load shows every record across all environments.
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEnv, setSelectedEnv] = useState<EnvFilter>('SIT');
+  const [selectedEnv, setSelectedEnv] = useState<EnvFilter>('All');
   const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('All');
   const [selectedUser, setSelectedUser] = useState<UserFilter>('All');
 
