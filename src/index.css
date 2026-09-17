@@ -1,1 +1,107 @@
 @import "tailwindcss";
+
+/*
+ * Modern Developer Dark Theme
+ * Pure blacks, dark slates, very subtle white borders (Vercel / Linear feel).
+ *
+ * Note: this project does NOT install tailwindcss-animate, so `animate-in`
+ * style utilities are unavailable. The keyframes below are hand-rolled so the
+ * accordion and panel transitions actually run.
+ */
+
+@theme {
+  --color-surface-base: #0a0a0a;
+  --color-surface-raised: #111111;
+  --color-surface-sunken: #08080a;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0a0a0a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Accordion: expanded panel eases in rather than snapping open. */
+@keyframes accordion-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-accordion {
+  animation: accordion-open 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Generic fade for dropdown panels (API helper, etc.). */
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-panel {
+  animation: panel-fade 150ms ease-out;
+}
+
+/* Status dot: a slow breathing pulse, calmer than Tailwind's animate-ping. */
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+.animate-status-pulse {
+  animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-accordion,
+  .animate-panel,
+  .animate-status-pulse {
+    animation: none;
+  }
+}
+
+/* Native <select> chevrons are drawn by the component, not the browser. */
+select.appearance-none::-ms-expand {
+  display: none;
+}
+
+/* Subtle, dark scrollbars for the code/pre blocks. */
+.scrollbar-subtle::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.1);
+  border-radius: 9999px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 0.2);
+}
