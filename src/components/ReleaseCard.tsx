@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Server,
   Pencil,
   FileCode,
   Sliders,
@@ -8,9 +7,6 @@ import {
   Copy,
   Check,
   ChevronDown,
-  Tag,
-  Radio,
-  Hash,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
 
@@ -108,16 +104,38 @@ function getInitials(name?: string | null): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** Small labelled cell used across the expanded detail grid. */
-const DetailCell: React.FC<{ label: string; children: React.ReactNode }> = ({
-  label,
-  children,
-}) => (
-  <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5">
-    <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-      {label}
+/** True only for a string with actual content — blank/whitespace hides its section. */
+function hasText(value?: string | null): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * A collapsible code/detail block. Only rendered when its payload is non-empty,
+ * so an expanded card shows what actually changed and nothing else.
+ */
+const DetailBlock: React.FC<{
+  title: string;
+  icon: React.ElementType;
+  accent: string;
+  body: string;
+  bodyClass: string;
+  action?: React.ReactNode;
+}> = ({ title, icon: Icon, accent, body, bodyClass, action }) => (
+  <div className="overflow-hidden rounded-lg border border-white/5">
+    <div className="flex items-center justify-between gap-2 border-b border-white/5 bg-white/[0.02] px-3 py-2">
+      <span
+        className={`flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider ${accent}`}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        {title}
+      </span>
+      {action}
     </div>
-    <div className="mt-1 text-sm text-zinc-200">{children}</div>
+    <pre
+      className={`scrollbar-subtle overflow-x-auto whitespace-pre-wrap bg-black/60 p-3 font-mono text-[11px] leading-relaxed ${bodyClass}`}
+    >
+      {body.trim()}
+    </pre>
   </div>
 );
 
@@ -129,6 +147,7 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
 }) => {
   const [internalExpanded, setInternalExpanded] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   const isExpanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
 
@@ -142,6 +161,12 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
   const created = formatTimestamp(record.createdAt);
   const updated = formatTimestamp(record.updatedAt);
   const developer = record.developerName || record.added_by || 'Unknown';
+
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(record.id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
 
   const handleCopyCommands = () => {
     if (!record.commandDetails) return;
@@ -275,27 +300,42 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
         />
       </button>
 
-      {/* ── EXPANDED: every detail saved on this record ── */}
+      {/* ── EXPANDED ──
+          Only what this release actually carries. Empty sections are omitted
+          rather than rendered as "none", and the technical identifiers sit in a
+          muted footer so they never compete with the release content. */}
       {isExpanded && (
         <div
           id={`release-panel-${record.id}`}
           className="animate-accordion border-t border-white/10 bg-[#0a0a0a] px-4 py-4 sm:px-5 sm:py-5"
         >
-          {/* Action row */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${statusStyle.chip}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-              {status}
-            </span>
+          {/* Summary row: status + what changed, with Edit anchored right. */}
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${statusStyle.chip}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+                {status}
+              </span>
+
+              {changeTags.map((tag) => (
+                <span
+                  key={tag.key}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium ${tag.className}`}
+                >
+                  <tag.icon className="h-3.5 w-3.5" />
+                  {tag.label}
+                </span>
+              ))}
+            </div>
 
             {onEdit && (
               <button
                 type="button"
                 id={`btn-edit-record-${record.id}`}
                 onClick={() => onEdit(record)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
                 title="Edit release details and status"
               >
                 <Pencil className="h-3.5 w-3.5" />
@@ -304,163 +344,100 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
             )}
           </div>
 
-          {/* Core fields */}
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-            <DetailCell label="Server">
-              <span className="flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="font-medium text-white">{record.server}</span>
-              </span>
-            </DetailCell>
-            <DetailCell label="Service">
-              <span className="font-mono text-emerald-400">{record.service}</span>
-            </DetailCell>
-            <DetailCell label="Version">
-              <span className="flex items-center gap-1.5">
-                <Tag className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="font-mono font-medium text-zinc-100">
-                  {record.version || '—'}
-                </span>
-              </span>
-            </DetailCell>
-            <DetailCell label="Environment">
-              <span className="font-medium">{record.environment}</span>
-            </DetailCell>
-          </div>
-
-          {/* Release note */}
-          <div className="mt-2.5 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Release Note
-            </div>
-            <p className="mt-1 text-sm leading-relaxed text-zinc-300">
-              {record.note ? (
-                record.note
-              ) : (
-                <span className="italic text-zinc-600">No release note recorded.</span>
-              )}
+          {/* Release note — the headline of the entry, so it leads and reads big. */}
+          {hasText(record.note) && (
+            <p className="border-l-2 border-white/10 py-0.5 pl-3.5 text-[13px] leading-relaxed text-zinc-300">
+              {record.note.trim()}
             </p>
-          </div>
+          )}
 
-          {/* What this release included */}
-          <div className="mt-4">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Included in this release
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {changeTags.length > 0 ? (
-                changeTags.map((tag) => (
-                  <span
-                    key={tag.key}
-                    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${tag.className}`}
-                  >
-                    <tag.icon className="h-3.5 w-3.5" />
-                    {tag.label}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs italic text-zinc-600">
-                  Standard release package — no change flags set.
-                </span>
+          {/* Detail payloads. Each appears only when it has content. */}
+          {(hasText(record.envDetails) ||
+            hasText(record.configDetails) ||
+            hasText(record.commandDetails)) && (
+            <div className="mt-4 space-y-2.5">
+              {hasText(record.envDetails) && (
+                <DetailBlock
+                  title="Environment Variables"
+                  icon={Sliders}
+                  accent="text-amber-300"
+                  body={record.envDetails}
+                  bodyClass="text-amber-200/90"
+                />
+              )}
+
+              {hasText(record.configDetails) && (
+                <DetailBlock
+                  title="Configuration Changes"
+                  icon={Sliders}
+                  accent="text-indigo-300"
+                  body={record.configDetails}
+                  bodyClass="text-indigo-200/90"
+                />
+              )}
+
+              {hasText(record.commandDetails) && (
+                <DetailBlock
+                  title="Deployment Commands"
+                  icon={Terminal}
+                  accent="text-sky-300"
+                  body={record.commandDetails}
+                  bodyClass="text-emerald-400 selection:bg-emerald-500/20"
+                  action={
+                    <button
+                      type="button"
+                      onClick={handleCopyCommands}
+                      className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                      title="Copy commands"
+                    >
+                      {copiedCmd ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-400" />
+                          <span className="text-emerald-400">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  }
+                />
               )}
             </div>
-          </div>
-
-          {/* Environment variables */}
-          {record.envDetails && (
-            <div className="mt-3 overflow-hidden rounded-lg border border-white/5">
-              <div className="flex items-center gap-2 border-b border-white/5 bg-white/[0.02] px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-                <Sliders className="h-3.5 w-3.5" />
-                Environment Variables
-              </div>
-              <pre className="scrollbar-subtle overflow-x-auto bg-black/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-amber-200/90">
-                {record.envDetails}
-              </pre>
-            </div>
           )}
 
-          {/* Configuration changes */}
-          {record.configDetails && (
-            <div className="mt-3 overflow-hidden rounded-lg border border-white/5">
-              <div className="flex items-center gap-2 border-b border-white/5 bg-white/[0.02] px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-300">
-                <Sliders className="h-3.5 w-3.5" />
-                Configuration Changes
-              </div>
-              <p className="bg-black/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-indigo-200/90">
-                {record.configDetails}
-              </p>
-            </div>
-          )}
-
-          {/* Deployment commands */}
-          {record.commandDetails && (
-            <div className="mt-3 overflow-hidden rounded-lg border border-white/5">
-              <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] px-3 py-2">
-                <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-sky-300">
-                  <Terminal className="h-3.5 w-3.5" />
-                  Deployment Commands
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyCommands}
-                  className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
-                  title="Copy commands"
-                >
-                  {copiedCmd ? (
-                    <>
-                      <Check className="h-3 w-3 text-emerald-400" />
-                      <span className="text-emerald-400">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      Copy
-                    </>
-                  )}
-                </button>
-              </div>
-              <pre className="scrollbar-subtle overflow-x-auto bg-black/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-emerald-400 selection:bg-emerald-500/20">
-                {record.commandDetails}
-              </pre>
-            </div>
-          )}
-
-          {/* Provenance */}
-          <div className="mt-4 grid grid-cols-1 gap-2.5 border-t border-white/5 pt-4 sm:grid-cols-2 lg:grid-cols-4">
-            <DetailCell label="Developer">
-              <span className="font-medium">{developer}</span>
-            </DetailCell>
-            <DetailCell label="Logged by">
-              <span className="font-medium">{record.added_by}</span>
-            </DetailCell>
-            <DetailCell label="Source">
-              <span className="flex items-center gap-1.5">
-                <Radio className="h-3.5 w-3.5 text-zinc-500" />
-                {record.source || '—'}
-              </span>
-            </DetailCell>
-            <DetailCell label="Record ID">
-              <span className="flex items-center gap-1.5">
-                <Hash className="h-3.5 w-3.5 text-zinc-500" />
-                <span className="truncate font-mono text-xs text-zinc-400" title={record.id}>
-                  {record.id}
-                </span>
-              </span>
-            </DetailCell>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-zinc-500">
+          {/* Audit footer. Deliberately muted: provenance, not content.
+              Record ID and source are tooltips rather than labelled fields. */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-white/5 pt-3 text-[11px] text-zinc-500">
             <span>
-              Created <span className="text-zinc-400">{created.absolute}</span>
-              {created.relative && <span className="text-zinc-600"> ({created.relative})</span>}
+              by <span className="font-medium text-zinc-400">{developer}</span>
             </span>
-            <span>
-              Updated <span className="text-zinc-400">{updated.absolute}</span>
-              {updated.relative && <span className="text-zinc-600"> ({updated.relative})</span>}
+            <span title={`Logged by ${record.added_by}`}>
+              logged by <span className="font-medium text-zinc-400">{record.added_by}</span>
+              {hasText(record.source) && (
+                <span className="text-zinc-600"> via {record.source.trim()}</span>
+              )}
             </span>
+            <span title={`Created ${created.absolute}`}>{created.relative || created.absolute}</span>
+            {updated.absolute !== created.absolute && (
+              <span title={`Last updated ${updated.absolute}`}>
+                edited {updated.relative || updated.absolute}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleCopyId}
+              title={`Record ID: ${record.id} (click to copy)`}
+              className="ml-auto font-mono text-[10px] text-zinc-700 transition-colors hover:text-zinc-400 focus:outline-none focus-visible:text-zinc-300"
+            >
+              {copiedId ? 'id copied' : `#${String(record.id).slice(-8)}`}
+            </button>
           </div>
         </div>
       )}
+
     </div>
   );
 };

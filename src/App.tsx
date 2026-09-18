@@ -278,8 +278,6 @@ export default function App() {
         ) : (
           <DashboardView
             records={records}
-            onAddRecord={() => setCurrentPath('/add')}
-            onRefresh={fetchRecords}
             isLoading={isLoading}
             onRecordUpdated={handleRecordUpdated}
           />

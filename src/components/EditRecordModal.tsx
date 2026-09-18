@@ -12,8 +12,10 @@ import {
   Terminal,
   FileCode,
   Tag,
+  ChevronDown,
 } from 'lucide-react';
 import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
+import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
 
 interface EditRecordModalProps {
   record: ReleaseRecord | null;
@@ -58,7 +60,9 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
 
       setStatus(normalizedStatus);
       setVersion(record.version || 'v1.0.0');
-      setDeveloperName(record.developerName || '');
+      // Falling back to the roster default keeps the <select> in a valid state;
+      // an empty value would match no option and render as an unsaveable blank.
+      setDeveloperName(record.developerName?.trim() || DEFAULT_DEVELOPER);
       setEnvironment(record.environment || 'SIT');
       setServer(record.server || '');
       setService(record.service || '');
@@ -250,21 +254,32 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+              <label
+                htmlFor="select-edit-developer"
+                className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5"
+              >
                 Developer Name *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
                   <User className="w-4 h-4 text-emerald-500" />
                 </div>
-                <input
-                  type="text"
+                {/* developerOptions keeps any off-roster name already on the
+                    record, so opening the modal never silently rewrites it. */}
+                <select
+                  id="select-edit-developer"
                   value={developerName}
                   onChange={(e) => setDeveloperName(e.target.value)}
-                  placeholder="Developer name..."
-                  className="w-full pl-9 pr-3 py-2 bg-[#18181b] border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  className="w-full pl-9 pr-8 py-2 bg-[#18181b] border border-zinc-800 rounded-xl text-sm text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                   required
-                />
+                >
+                  {developerOptions(developerName).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               </div>
             </div>
           </div>
