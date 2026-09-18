@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
 import servicesConfig from '@/config/services.json';
+import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
 
 const ARCHITECTURE_SERVICES: Record<string, string[]> = servicesConfig;
 
@@ -55,7 +56,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
   const [environment, setEnvironment] = useState<'SIT' | 'UAT' | 'Prod'>('SIT');
   const [status, setStatus] = useState<ReleaseStatus>('PENDING');
   const [addedBy, setAddedBy] = useState<string>('A.Hameed');
-  const [globalDeveloperName, setGlobalDeveloperName] = useState<string>('Sufyan Tariq');
+  const [globalDeveloperName, setGlobalDeveloperName] = useState<string>(DEFAULT_DEVELOPER);
   const [note, setNote] = useState<string>('');
 
   // Dynamic Services Array (Middle)
@@ -511,7 +512,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
 
               <div>
                 <label
-                  htmlFor="input-default-developer"
+                  htmlFor="select-default-developer"
                   className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2"
                 >
                   Lead Developer / Author *
@@ -520,15 +521,20 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
                     <User className="w-4 h-4 text-emerald-500" />
                   </div>
-                  <input
-                    id="input-default-developer"
-                    type="text"
+                  <select
+                    id="select-default-developer"
                     value={globalDeveloperName}
                     onChange={(e) => setGlobalDeveloperName(e.target.value)}
-                    placeholder="e.g. Sufyan Tariq"
-                    className="w-full pl-10 pr-3.5 py-2.5 bg-[#18181b] border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+                    className="w-full pl-10 pr-9 py-2.5 bg-[#18181b] border border-zinc-800 rounded-xl text-sm font-semibold text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
                     required
-                  />
+                  >
+                    {developerOptions(globalDeveloperName).map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                 </div>
               </div>
             </div>

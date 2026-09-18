@@ -1,13 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search,
-  Plus,
-  RefreshCw,
   Layers,
-  Terminal,
-  Copy,
-  Check,
-  Code2,
   X,
   ChevronDown,
   Table,
@@ -15,16 +9,16 @@ import {
   AlertTriangle,
   ArrowRight,
   Filter,
+  Loader2,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
+import { DEVELOPERS } from '@/lib/developers';
 import { ReleaseCard } from './ReleaseCard';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
 
 interface DashboardViewProps {
   records: ReleaseRecord[];
-  onAddRecord: () => void;
-  onRefresh: () => void;
   isLoading?: boolean;
   onRecordUpdated?: (record: ReleaseRecord) => void;
 }
@@ -106,8 +100,6 @@ const MatrixVersion: React.FC<{
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
-  onAddRecord,
-  onRefresh,
   isLoading = false,
   onRecordUpdated,
 }) => {
@@ -118,9 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedEnv, setSelectedEnv] = useState<EnvFilter>('All');
   const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('All');
   const [selectedUser, setSelectedUser] = useState<UserFilter>('All');
-
-  const [copiedCurl, setCopiedCurl] = useState(false);
-  const [showApiHelper, setShowApiHelper] = useState(false);
+  const [selectedDev, setSelectedDev] = useState<string>('All');
 
   const [editingRecord, setEditingRecord] = useState<ReleaseRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -135,18 +125,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onRecordUpdated?.(updatedRecord);
   };
 
+  // Roster first, then any developer name already on a record but not on the
+  // roster — otherwise older/API-created entries would be unreachable by filter.
+  const developerOptions = useMemo(() => {
+    const extras = Array.from(
+      new Set(
+        records
+          .map((r) => (r.developerName || '').trim())
+          .filter((name) => name && !DEVELOPERS.includes(name))
+      )
+    ).sort();
+    return ['All', ...DEVELOPERS, ...extras];
+  }, [records]);
+
   const resetFilters = () => {
     setSearchQuery('');
     setSelectedEnv('All');
     setSelectedStatus('All');
     setSelectedUser('All');
+    setSelectedDev('All');
   };
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
     selectedEnv !== 'All' ||
     selectedStatus !== 'All' ||
-    selectedUser !== 'All';
+    selectedUser !== 'All' ||
+    selectedDev !== 'All';
 
   // ── Environment Drift Matrix ───────────────────────────────────────────────
   // Shows ONLY the latest record per environment where status === 'SUCCESS'.
@@ -252,6 +257,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           if (String(r.status || 'PENDING').toUpperCase() !== selectedStatus) return false;
         }
 
+        if (selectedDev !== 'All' && (r.developerName || '').trim() !== selectedDev) {
+          return false;
+        }
+
         if (selectedUser !== 'All') {
           const rUser = (r.added_by || '').toLowerCase();
           const sUser = selectedUser.toLowerCase();
@@ -280,31 +289,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return true;
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [records, searchQuery, selectedEnv, selectedStatus, selectedUser]);
-
-  const curlSnippet = `curl -X POST "${
-    typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'
-  }/api/records" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer $API_SECRET_KEY" \\
-  -d '{
-    "environment": "Prod",
-    "server": "Bot-Builder",
-    "service": "bot-builder-api",
-    "version": "v1.0.2",
-    "developerName": "Sufyan Tariq",
-    "status": "SUCCESS",
-    "isBuildUpdate": true,
-    "source": "Teams Group",
-    "added_by": "A.Hameed",
-    "note": "Production deployment verified"
-  }'`;
-
-  const handleCopyCurl = () => {
-    navigator.clipboard.writeText(curlSnippet);
-    setCopiedCurl(true);
-    setTimeout(() => setCopiedCurl(false), 2000);
-  };
+  }, [records, searchQuery, selectedEnv, selectedStatus, selectedUser, selectedDev]);
 
   const tabClass = (active: boolean) =>
     `inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
@@ -315,86 +300,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* ── Page header ── */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            Release Tracker
-          </h1>
-          <p className="mt-1.5 text-sm text-zinc-500">
-            Deployment audit log and cross-environment version matrix.
-          </p>
-        </div>
-
-        <div className="flex flex-shrink-0 items-center gap-2">
-          <button
-            id="btn-show-api-info"
-            onClick={() => setShowApiHelper((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
-          >
-            <Code2 className="h-3.5 w-3.5" />
-            API
-          </button>
-          <button
-            id="btn-refresh-feed"
-            onClick={onRefresh}
-            disabled={isLoading}
-            title="Refresh feed"
-            className="inline-flex items-center rounded-lg border border-white/10 bg-white/[0.03] p-2 text-zinc-400 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin text-emerald-400' : ''}`} />
-          </button>
-          <button
-            id="btn-add-record-top"
-            onClick={onAddRecord}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
-          >
-            <Plus className="h-4 w-4" />
-            Log Release
-          </button>
-        </div>
+      {/* ── Page header ──
+          Actions intentionally live in the navbar only (Add Record). Refresh is
+          unnecessary: the realtime subscription in App.tsx streams inserts and
+          updates in as they happen. */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+          Release Tracker
+        </h1>
+        <p className="mt-1.5 text-sm text-zinc-500">
+          Deployment audit log and cross-environment version matrix.
+        </p>
       </div>
-
-      {/* ── API helper ── */}
-      {showApiHelper && (
-        <div className="animate-panel mb-6 rounded-xl border border-white/5 bg-[#111111] p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              <Terminal className="h-3.5 w-3.5 text-emerald-400" />
-              POST /api/records
-            </span>
-            <button
-              id="btn-copy-curl-code"
-              onClick={handleCopyCurl}
-              className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
-            >
-              {copiedCurl ? (
-                <>
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  <span className="text-emerald-400">Copied</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy
-                </>
-              )}
-            </button>
-          </div>
-          <pre className="scrollbar-subtle overflow-x-auto rounded-lg border border-white/5 bg-black/60 p-4 font-mono text-[11px] leading-relaxed text-emerald-400">
-            {curlSnippet}
-          </pre>
-        </div>
-      )}
 
       {/* ── Stats ── */}
       <StatsBar records={records} />
 
       {/* ── Filter bar ── */}
       <div className="mb-6 rounded-xl border border-white/5 bg-[#111111] p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
           {/* Search */}
-          <div className="flex flex-col gap-1.5 md:col-span-5">
+          <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
             <label
               htmlFor="input-top-search"
               className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
@@ -425,7 +351,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <FilterSelect
               id="select-filter-env"
               label="Environment"
@@ -436,7 +362,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           </div>
 
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <FilterSelect
               id="select-filter-status"
               label="Status"
@@ -447,7 +373,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           </div>
 
-          <div className="md:col-span-3">
+          <div className="lg:col-span-2">
+            <FilterSelect
+              id="select-filter-developer"
+              label="Developer"
+              allLabel="All developers"
+              value={selectedDev}
+              options={developerOptions}
+              onChange={setSelectedDev}
+            />
+          </div>
+
+          <div className="lg:col-span-2">
             <FilterSelect
               id="select-filter-user"
               label="Logged by"
@@ -461,7 +398,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Result count + active filter reset */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-3 text-xs">
-          <span className="text-zinc-500">
+          <span className="flex items-center gap-2 text-zinc-500">
+            {isLoading && <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />}
             Showing <strong className="font-semibold text-white">{filteredRecords.length}</strong>{' '}
             of {records.length} records
           </span>
