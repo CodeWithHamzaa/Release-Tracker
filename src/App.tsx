@@ -187,7 +187,7 @@ export default function App() {
     }
   }, [records]);
 
-  // Real-time Supabase connection check and listener (INSERT & UPDATE)
+  // Real-time Supabase connection check and listener (INSERT, UPDATE & DELETE)
   useEffect(() => {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -213,6 +213,13 @@ export default function App() {
             setRecords((prev) =>
               prev.map((r) => (r.id === updated.id ? updated : r))
             );
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            // Default REPLICA IDENTITY only ships the primary key on DELETE,
+            // so payload.old is a Partial<ReleaseRecord> -- id is all we need.
+            const deletedId = (payload.old as Partial<ReleaseRecord>).id;
+            if (deletedId) {
+              setRecords((prev) => prev.filter((r) => r.id !== deletedId));
+            }
           }
         }
       )

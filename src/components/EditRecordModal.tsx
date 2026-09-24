@@ -134,7 +134,15 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
         throw new Error(errData.message || `Failed to update record (status ${res.status})`);
       }
 
-      const updatedRecord: ReleaseRecord = await res.json();
+      // PATCH responds with { success, record }, not the record directly
+      // (see lib/app.ts) -- unwrap it the same way AddRecordForm unwraps
+      // POST's { records: [...] }. Passing the wrapper straight through gave
+      // onUpdateSuccess an object with no .id, so App.tsx's
+      // prev.map((r) => r.id === updatedRecord.id ? updatedRecord : r) never
+      // matched anything: the server saved the edit, but the open tab kept
+      // showing the old value until a full reload.
+      const resJson = await res.json();
+      const updatedRecord: ReleaseRecord = resJson && resJson.record ? resJson.record : resJson;
       onUpdateSuccess(updatedRecord);
       onClose();
     } catch (err: any) {

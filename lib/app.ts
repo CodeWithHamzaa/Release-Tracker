@@ -8,8 +8,8 @@
 // dev server into the serverless bundle.
 
 import express, { Request, Response } from 'express';
-import { ReleaseRecord, ReleaseStatus } from './types';
-import { getPrismaClient } from './prisma';
+import { ReleaseRecord, ReleaseStatus } from './types.js';
+import { getPrismaClient } from './prisma.js';
 import crypto from 'crypto';
 
 const app = express();

@@ -162,17 +162,31 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
   const updated = formatTimestamp(record.updatedAt);
   const developer = record.developerName || record.added_by || 'Unknown';
 
+  // navigator.clipboard is undefined on insecure origins (plain HTTP off
+  // localhost) and writeText() can reject if permission is denied, so a bare
+  // call can throw synchronously or leave an unhandled rejection. Route both
+  // through one helper that only flips the "copied" flag on real success.
+  const copyToClipboard = (text: string, onCopied: (copied: boolean) => void) => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        onCopied(true);
+        setTimeout(() => onCopied(false), 2000);
+      })
+      .catch(() => {
+        // Clipboard write denied or unavailable -- leave the UI unchanged
+        // rather than falsely claiming success.
+      });
+  };
+
   const handleCopyId = () => {
-    navigator.clipboard.writeText(record.id);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
+    copyToClipboard(record.id, setCopiedId);
   };
 
   const handleCopyCommands = () => {
     if (!record.commandDetails) return;
-    navigator.clipboard.writeText(record.commandDetails);
-    setCopiedCmd(true);
-    setTimeout(() => setCopiedCmd(false), 2000);
+    copyToClipboard(record.commandDetails, setCopiedCmd);
   };
 
   const changeTags = [

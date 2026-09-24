@@ -6,6 +6,6 @@
 //
 // Static assets are served by Vercel from dist/, never from this function.
 
-import app from '../lib/app';
+import app from '../lib/app.js';
 
 export default app;

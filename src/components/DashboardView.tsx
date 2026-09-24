@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Layers,
@@ -137,6 +137,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     ).sort();
     return ['All', ...DEVELOPERS, ...extras];
   }, [records]);
+
+  // If the developer this filter is pinned to drops out of the derived
+  // options (its only record was deleted or edited to a different name),
+  // fall back to "All" instead of silently matching zero records while the
+  // select still reads as a real, unmet filter.
+  useEffect(() => {
+    if (selectedDev !== 'All' && !developerOptions.includes(selectedDev)) {
+      setSelectedDev('All');
+    }
+  }, [developerOptions, selectedDev]);
 
   const resetFilters = () => {
     setSearchQuery('');
