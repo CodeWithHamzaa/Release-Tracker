@@ -176,6 +176,9 @@ export default function App() {
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  // Set when /api/records fails, so the placeholder/cached records above are
+  // never mistaken for live data.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(false);
 
   // Sync to local storage for persistence across reloads
@@ -237,14 +240,16 @@ export default function App() {
     setIsLoading(true);
     try {
       const res = await fetch('/api/records');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.records && Array.isArray(data.records) && data.records.length > 0) {
-          setRecords(data.records);
-        }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && Array.isArray(data.records)) {
+        setRecords(data.records);
+        setLoadError(null);
+      } else {
+        const reason = data?.reason ? ` (${data.reason})` : '';
+        setLoadError(`${data?.message || `Failed to load records (HTTP ${res.status})`}${reason}`);
       }
     } catch {
-      // Using existing state
+      setLoadError('Could not reach the release API.');
     } finally {
       setIsLoading(false);
     }
@@ -277,6 +282,15 @@ export default function App() {
       />
 
       <main className="flex-1">
+        {loadError && (
+          <div
+            role="alert"
+            className="mx-auto max-w-7xl mt-4 px-4 py-3 rounded-md border border-rose-900 bg-rose-950/40 text-rose-300 text-sm"
+          >
+            <span className="font-semibold">Live data unavailable:</span> {loadError} Records shown
+            below are cached or placeholder data, not the database.
+          </div>
+        )}
         {currentPath === '/add' ? (
           <AddRecordForm
             onSuccess={handleNewRecord}

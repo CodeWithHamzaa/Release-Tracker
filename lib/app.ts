@@ -9,7 +9,7 @@
 
 import express, { Request, Response } from 'express';
 import { ReleaseRecord, ReleaseStatus } from './types.js';
-import { getPrismaClient } from './prisma.js';
+import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -170,25 +170,95 @@ function isAuthorized(req: Request): boolean {
   return token === validSecret;
 }
 
-// 1. Health check
-router.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Helper: turn a database failure into a response. An unreachable or
+// unconfigured database is a 503; anything else (a failed query) is a 500.
+// Never falls back to memoryRecords -- that fallback is only for local dev
+// with no database configured, where getPrismaClient() returns null.
+function sendDbError(res: Response, err: unknown, action: string) {
+  if (err instanceof DatabaseUnavailableError) {
+    return res.status(503).json({
+      error: 'Service Unavailable',
+      message: 'The release database is unreachable. Check DATABASE_URL.',
+      reason: err.reason,
+    });
+  }
+  console.error(`Failed to ${action}:`, err);
+  return res.status(500).json({
+    error: 'Internal Server Error',
+    message: `Failed to ${action}.`,
+  });
+}
+
+// Prisma's "record to update/delete does not exist" error.
+function isRecordNotFound(err: unknown): boolean {
+  return (err as { code?: string })?.code === 'P2025';
+}
+
+// Fields the edit form may change. Anything else in a PATCH body (id,
+// createdAt, unknown keys) is ignored rather than handed to Prisma.
+const EDITABLE_FIELDS = [
+  'environment',
+  'server',
+  'service',
+  'version',
+  'developerName',
+  'status',
+  'note',
+  'isBuildUpdate',
+  'isEnvUpdate',
+  'envDetails',
+  'isConfigUpdate',
+  'configDetails',
+  'hasCommands',
+  'commandDetails',
+  'source',
+  'added_by',
+] as const;
+
+function pickEditableFields(body: any): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  if (!body || typeof body !== 'object') return data;
+  for (const key of EDITABLE_FIELDS) {
+    if (body[key] !== undefined) data[key] = body[key];
+  }
+  if (data.status !== undefined) {
+    const raw = String(data.status).toUpperCase();
+    if (['SUCCESS', 'FAILED', 'PENDING'].includes(raw)) {
+      data.status = raw;
+    } else {
+      delete data.status;
+    }
+  }
+  return data;
+}
+
+// 1. Health check -- also reports whether the database is actually reachable,
+// so a misconfigured deployment is visible from one URL.
+router.get('/health', async (req: Request, res: Response) => {
+  const timestamp = new Date().toISOString();
+  try {
+    const prisma = await getPrismaClient();
+    res.json({ status: 'ok', database: prisma ? 'connected' : 'memory', timestamp });
+  } catch (err) {
+    const reason = err instanceof DatabaseUnavailableError ? err.reason : 'Unknown error';
+    res.status(503).json({ status: 'degraded', database: 'unavailable', reason, timestamp });
+  }
 });
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
   try {
     const prisma = await getPrismaClient();
-    if (prisma && prisma.releaseRecord) {
+    if (prisma) {
       const records = await prisma.releaseRecord.findMany({
         orderBy: { createdAt: 'desc' },
       });
-      return res.json({ success: true, records });
+      return res.json({ success: true, dataSource: 'database', records });
     }
-  } catch {
-    // Graceful fallback to memoryRecords
+  } catch (err) {
+    return sendDbError(res, err, 'load release records');
   }
-  res.json({ success: true, records: memoryRecords });
+  res.json({ success: true, dataSource: 'memory', records: memoryRecords });
 });
 
 // 3. GET single release record
@@ -196,12 +266,15 @@ router.get('/records/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const prisma = await getPrismaClient();
-    if (prisma && prisma.releaseRecord) {
+    if (prisma) {
       const record = await prisma.releaseRecord.findUnique({ where: { id } });
-      if (record) return res.json(record);
+      if (!record) {
+        return res.status(404).json({ error: 'Not Found', message: `Record ${id} not found.` });
+      }
+      return res.json(record);
     }
-  } catch {
-    // Graceful fallback to memoryRecords
+  } catch (err) {
+    return sendDbError(res, err, 'load the release record');
   }
 
   const record = memoryRecords.find((r) => r.id === id);
@@ -269,7 +342,6 @@ router.post('/records', async (req: Request, res: Response) => {
           updatedAt: timestamp,
         };
         createdRecords.push(item);
-        memoryRecords.unshift(item);
       }
     } else if (isDirectArray) {
       for (const item of body) {
@@ -295,7 +367,6 @@ router.post('/records', async (req: Request, res: Response) => {
           updatedAt: item.updatedAt || timestamp,
         };
         createdRecords.push(record);
-        memoryRecords.unshift(record);
       }
     } else {
       const record: ReleaseRecord = {
@@ -320,13 +391,16 @@ router.post('/records', async (req: Request, res: Response) => {
         updatedAt: timestamp,
       };
       createdRecords.push(record);
-      memoryRecords.unshift(record);
     }
 
-    // Try persisting to Prisma if available
+    // Persist to the database when one is configured; only local dev with no
+    // database keeps records in memory.
     try {
       const prisma = await getPrismaClient();
-      if (prisma && prisma.releaseRecord) {
+      if (!prisma) {
+        // Newest first, same order the per-record unshift used to produce.
+        memoryRecords.unshift(...[...createdRecords].reverse());
+      } else {
         await prisma.releaseRecord.createMany({
           data: createdRecords.map((r) => ({
             id: r.id,
@@ -351,8 +425,8 @@ router.post('/records', async (req: Request, res: Response) => {
           })),
         });
       }
-    } catch {
-      // Prisma create failed, records are preserved in memory
+    } catch (err) {
+      return sendDbError(res, err, 'save release records');
     }
 
     res.status(201).json({
@@ -374,37 +448,36 @@ router.patch('/records/:id', async (req: Request, res: Response) => {
   }
 
   const { id } = req.params;
-  const body = req.body;
+  const data = pickEditableFields(req.body);
+
+  try {
+    const prisma = await getPrismaClient();
+    if (prisma) {
+      // The database is the source of truth: update there directly. (Looking
+      // the id up in memoryRecords first would 404 every real database row.)
+      const record = await prisma.releaseRecord.update({
+        where: { id },
+        data: { ...data, updatedAt: new Date() },
+      });
+      return res.json({ success: true, record });
+    }
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return res.status(404).json({ error: 'Not Found', message: `Record ${id} not found.` });
+    }
+    return sendDbError(res, err, 'update the release record');
+  }
 
   const idx = memoryRecords.findIndex((r) => r.id === id);
   if (idx === -1) {
     return res.status(404).json({ error: 'Not Found', message: `Record ${id} not found.` });
   }
-
-  const updated = { ...memoryRecords[idx], ...body, updatedAt: new Date().toISOString() };
-  if (body.status) {
-    const raw = String(body.status).toUpperCase();
-    if (['SUCCESS', 'FAILED', 'PENDING'].includes(raw)) {
-      updated.status = raw as ReleaseStatus;
-    }
-  }
+  const updated: ReleaseRecord = {
+    ...memoryRecords[idx],
+    ...(data as Partial<ReleaseRecord>),
+    updatedAt: new Date().toISOString(),
+  };
   memoryRecords[idx] = updated;
-
-  try {
-    const prisma = await getPrismaClient();
-    if (prisma && prisma.releaseRecord) {
-      await prisma.releaseRecord.update({
-        where: { id },
-        data: {
-          ...body,
-          updatedAt: new Date(),
-        },
-      });
-    }
-  } catch {
-    // Prisma update failed, updated in memory
-  }
-
   res.json({ success: true, record: updated });
 });
 
@@ -415,20 +488,25 @@ router.delete('/records/:id', async (req: Request, res: Response) => {
   }
 
   const { id } = req.params;
-  const idx = memoryRecords.findIndex((r) => r.id === id);
-  if (idx !== -1) {
-    memoryRecords.splice(idx, 1);
-  }
 
   try {
     const prisma = await getPrismaClient();
-    if (prisma && prisma.releaseRecord) {
+    if (prisma) {
       await prisma.releaseRecord.delete({ where: { id } });
+      return res.json({ success: true, message: `Record ${id} deleted.` });
     }
-  } catch {
-    // Prisma delete failed
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return res.status(404).json({ error: 'Not Found', message: `Record ${id} not found.` });
+    }
+    return sendDbError(res, err, 'delete the release record');
   }
 
+  const idx = memoryRecords.findIndex((r) => r.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Not Found', message: `Record ${id} not found.` });
+  }
+  memoryRecords.splice(idx, 1);
   res.json({ success: true, message: `Record ${id} deleted.` });
 });
 
