@@ -86,8 +86,8 @@ export function buildRunbook(input: RunbookInput): Runbook {
   if (!s) warnings.push(`No server registry entry for ${where}. Add it on the Catalog page.`);
   if (s && !s.ip) warnings.push('Server IP unknown: the downloadable script cannot check it is on the right server.');
   if (s && !s.composePath) warnings.push('Compose folder unknown (unverified): run from the folder holding docker-compose.yml.');
-  if (s && !s.runAs && !prod) warnings.push('Run-as account unknown (unverified).');
-  if (prod) warnings.push('PROD: apply asks you to type PROD, and --yes is refused. PROD app account is unverified.');
+  if (s && !s.runAs) warnings.push('Run-as account unknown (unverified).');
+  if (prod) warnings.push('PROD: apply asks you to type PROD, and --yes is refused.');
 
   const steps: RunbookStep[] = [];
 

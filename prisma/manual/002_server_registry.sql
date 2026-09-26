@@ -4,7 +4,7 @@
 --
 -- Run once in the Supabase SQL editor. Safe to run again: existing rows are
 -- never overwritten, so edits made on the Catalog page survive a re-run.
--- Values the index does not state (compose folders, the PROD account) are
+-- Values the index does not state (compose folders) are
 -- left NULL and show as "unverified" in the app.
 --
 -- Row-level security is on with no policies: only the API (Prisma, table
@@ -43,10 +43,10 @@ FROM (VALUES
   ('UAT', 'ChatBot / NLU', '10.32.32.158', 'evauat.faysalbank.com', 'chatbotuat', 'Bank jump server, session requested each time', ARRAY['.env_fbl','.env'],            'No root. Base dir /home/chatbotuat/ISSM/ (exact compose folder unverified).'),
   ('UAT', 'Database',      '10.42.42.79',  'evauat.faysalbank.com', 'chatbotuat', 'Bank jump server, session requested each time', ARRAY['.env'],                        'On the SIT subnet intentionally. No root. Base dir /home/chatbotuat/ISSM/ (exact compose folder unverified).'),
   ('UAT', 'Chat-Service',  '10.32.32.155', 'evauat.faysalbank.com', 'chatbotuat', 'Bank jump server, session requested each time', ARRAY['.env'],                        'No root. Base dir /home/chatbotuat/ISSM/ (exact compose folder unverified). Missing litellm-service/litellm-db is known (ChatBot).'),
-  ('Prod', 'Bot-Builder',   '10.0.8.117', 'eva.faysalbank.com', NULL, 'Bank jump server, session requested each time', ARRAY['.env','.env_fbl','.poly_env'], 'No root; app account unverified. Older toolkit (stated).'),
-  ('Prod', 'ChatBot / NLU', '10.0.11.72', 'eva.faysalbank.com', NULL, 'Bank jump server, session requested each time', ARRAY['.env_fbl','.env'],            'No root; app account unverified. Older toolkit (stated).'),
-  ('Prod', 'Database',      '10.0.8.57',  'eva.faysalbank.com', NULL, 'Bank jump server, session requested each time', ARRAY['.env'],                        'No root; app account unverified. Older toolkit (stated).'),
-  ('Prod', 'Chat-Service',  '10.0.11.74', 'eva.faysalbank.com', NULL, 'Bank jump server, session requested each time', ARRAY['.env'],                        'No root; app account unverified. Older toolkit (stated).')
+  ('Prod', 'Bot-Builder',   '10.0.8.117', 'eva.faysalbank.com', 'chatbotpro', 'Bank jump server, session requested each time', ARRAY['.env','.env_fbl','.poly_env'], 'No root. Older toolkit (stated).'),
+  ('Prod', 'ChatBot / NLU', '10.0.11.72', 'eva.faysalbank.com', 'chatbotpro', 'Bank jump server, session requested each time', ARRAY['.env_fbl','.env'],            'No root. Older toolkit (stated).'),
+  ('Prod', 'Database',      '10.0.8.57',  'eva.faysalbank.com', 'chatbotpro', 'Bank jump server, session requested each time', ARRAY['.env'],                        'No root. Older toolkit (stated).'),
+  ('Prod', 'Chat-Service',  '10.0.11.74', 'eva.faysalbank.com', 'chatbotpro', 'Bank jump server, session requested each time', ARRAY['.env'],                        'No root. Older toolkit (stated).')
 ) AS v(env, role, ip, domain, run_as, access, env_files, notes)
 ON CONFLICT ("environment", "role") DO NOTHING;
 

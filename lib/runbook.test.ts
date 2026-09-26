@@ -50,6 +50,17 @@ test('runbook: PROD warns about typed PROD and never suggests --yes; non-SIT nee
   assert.doesNotMatch(text.replace(/Do not use --yes|--yes is refused/g, ''), /--yes/);
 });
 
+test('runbook: PROD with a known account expects it; unknown account is flagged', () => {
+  const prodServer = { ...sitChatbot.server!, ip: '10.0.11.72', runAs: 'chatbotpro' };
+  const rb = buildRunbook({ ...sitChatbot, environment: 'Prod', server: prodServer });
+  assert.ok(!rb.warnings.some((w) => /unverified|unknown/i.test(w) && /account/i.test(w)));
+  assert.ok(rb.steps.flatMap((s) => s.commands).includes('whoami   # expect chatbotpro'));
+  assert.match(runbookScript({ ...sitChatbot, environment: 'Prod', server: prodServer }), /^EXPECTED_USER='chatbotpro'$/m);
+
+  const unknown = buildRunbook({ ...sitChatbot, environment: 'Prod', server: { ...prodServer, runAs: null } });
+  assert.ok(unknown.warnings.includes('Run-as account unknown (unverified).'));
+});
+
 test('runbook: bad PATCH_ID is flagged and the script refuses it', () => {
   const bad = { ...sitChatbot, patchId: '../../etc; rm -rf /' };
   assert.ok(buildRunbook(bad).warnings.some((w) => /PATCH_ID/.test(w)));
