@@ -63,3 +63,24 @@ model ServicePort {
   @@unique([environment, host, hostPort, protocol])
   @@index([serviceId])
 }
+
+// Server registry: one row per environment + role (the four ALARA roles, same
+// names as ReleaseRecord.server). Used by the patch runbook generator for the
+// environment guard (expected IP), compose folder and run-as account.
+// Unknown values stay NULL and show as "unverified" in the UI.
+model ServerNode {
+  id             String   @id @default(uuid())
+  environment    String   // SIT, UAT, Prod
+  role           String   // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  ip             String?
+  domain         String?
+  composePath    String?  // folder holding docker-compose.yml
+  runAs          String?  // e.g. root on SIT, chatbotuat on UAT
+  access         String?  // how you reach it, e.g. jump 10.200.200.20
+  envFiles       String[] // env files this role reads
+  toolkitVersion String?  // alara_server.sh version installed
+  notes          String?
+  updatedAt      DateTime @updatedAt
+
+  @@unique([environment, role])
+}

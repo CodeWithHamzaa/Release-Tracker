@@ -229,7 +229,7 @@ router.get('/health', async (req: Request, res: Response) => {
 // path, not router-wide: this router is also mounted at the root (see the
 // bottom of the file), where a blanket guard would 401 the SPA's own pages
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
-router.use(['/records', '/catalog'], requireAuth);
+router.use(['/records', '/catalog', '/servers'], requireAuth);
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
@@ -716,6 +716,68 @@ router.post('/catalog/import', async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Conflict', message: 'A port was taken by another save at the same moment. Try again.' });
     }
     return sendDbError(res, err, 'import the compose file');
+  }
+});
+
+// ── Server registry ────────────────────────────────────────────────────────
+// One row per environment + role (seeded by prisma/manual/002_server_registry.sql).
+// Feeds the patch runbook: expected IP for the environment guard, compose
+// folder, run-as account. Rows are edited, not created or deleted, here.
+
+const SERVER_TEXT_FIELDS = ['ip', 'domain', 'composePath', 'runAs', 'access', 'toolkitVersion', 'notes'] as const;
+const ENV_ORDER: Record<string, number> = { SIT: 0, UAT: 1, Prod: 2 };
+
+router.get('/servers', async (req: Request, res: Response) => {
+  try {
+    const prisma = await getPrismaClient();
+    if (!prisma) {
+      return res.json({ success: true, dataSource: 'memory', servers: [] });
+    }
+    const servers = await prisma.serverNode.findMany({ orderBy: [{ role: 'asc' }] });
+    servers.sort((a: any, b: any) => (ENV_ORDER[a.environment] ?? 9) - (ENV_ORDER[b.environment] ?? 9));
+    res.json({ success: true, dataSource: 'database', servers });
+  } catch (err) {
+    return sendDbError(res, err, 'load the server registry');
+  }
+});
+
+router.patch('/servers/:id', async (req: Request, res: Response) => {
+  const data: Record<string, unknown> = {};
+  for (const key of SERVER_TEXT_FIELDS) {
+    if (req.body?.[key] === undefined) continue;
+    const raw = req.body[key];
+    if (raw !== null && typeof raw !== 'string') {
+      return res.status(400).json({ error: 'Bad Request', message: `${key} must be text.` });
+    }
+    const v = raw === null ? '' : raw.trim();
+    if (v.length > (key === 'notes' ? 1000 : 200)) {
+      return res.status(400).json({ error: 'Bad Request', message: `${key} is too long.` });
+    }
+    data[key] = v || null; // blank = unknown
+  }
+  if (data.ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(String(data.ip))) {
+    return res.status(400).json({ error: 'Bad Request', message: 'ip must be an IPv4 address like 10.42.42.250.' });
+  }
+  if (req.body?.envFiles !== undefined) {
+    const files = req.body.envFiles;
+    if (!Array.isArray(files) || files.length > 10 || files.some((f: unknown) => typeof f !== 'string' || !/^[\w.-]{1,60}$/.test(f))) {
+      return res.status(400).json({ error: 'Bad Request', message: 'envFiles must be a list of file names like .env_fbl.' });
+    }
+    data.envFiles = files;
+  }
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Nothing to update.' });
+  }
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const server = await prisma.serverNode.update({ where: { id: req.params.id }, data });
+    res.json({ success: true, server });
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return res.status(404).json({ error: 'Not Found', message: 'Server not found.' });
+    }
+    return sendDbError(res, err, 'update the server');
   }
 });
 

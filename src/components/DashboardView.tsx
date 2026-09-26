@@ -10,17 +10,23 @@ import {
   ArrowRight,
   Filter,
   Loader2,
+  ClipboardList,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
 import { DEVELOPERS } from '@/lib/developers';
 import { ReleaseCard } from './ReleaseCard';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
+import { RunbookModal } from './RunbookModal';
+import { SyncLinesModal } from './SyncLinesModal';
+import type { ServerNode } from '../useServers';
 
 interface DashboardViewProps {
   records: ReleaseRecord[];
   isLoading?: boolean;
   onRecordUpdated?: (record: ReleaseRecord) => void;
+  // Server registry lookup for the patch runbook.
+  findServer?: (environment: string, role: string) => ServerNode | null;
 }
 
 type EnvFilter = 'All' | 'SIT' | 'UAT' | 'Prod';
@@ -102,7 +108,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
   isLoading = false,
   onRecordUpdated,
+  findServer,
 }) => {
+  const [runbookRecord, setRunbookRecord] = useState<ReleaseRecord | null>(null);
+  const [showSyncLines, setShowSyncLines] = useState(false);
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
   // Filters start unset so the initial load shows every record across all environments.
@@ -445,6 +454,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           )}
         </button>
+        <span className="flex-1" />
+        <button
+          id="btn-sync-lines"
+          type="button"
+          onClick={() => setShowSyncLines(true)}
+          title="Lines for section 1.2 of the ALARA knowledge index"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+          §1.2 lines
+        </button>
       </div>
 
       {/* ── TAB: Drift matrix ── */}
@@ -587,6 +607,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     setExpandedRowId((prev) => (prev === record.id ? null : record.id))
                   }
                   onEdit={handleEditClick}
+                  onRunbook={setRunbookRecord}
                 />
               ))}
             </div>
@@ -603,6 +624,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }}
         onUpdateSuccess={handleUpdateSuccess}
       />
+
+      {runbookRecord && (
+        <RunbookModal
+          record={runbookRecord}
+          records={records}
+          server={findServer ? findServer(runbookRecord.environment, runbookRecord.server) : null}
+          onClose={() => setRunbookRecord(null)}
+        />
+      )}
+      {showSyncLines && <SyncLinesModal records={records} onClose={() => setShowSyncLines(false)} />}
     </div>
   );
 };

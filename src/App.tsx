@@ -10,6 +10,7 @@ import { ReleaseRecord } from '@/lib/types';
 import { getSupabaseClient } from '@/lib/supabase';
 import { apiFetch, apiErrorMessage } from './api';
 import { useCatalog, CatalogService } from './useCatalog';
+import { useServers } from './useServers';
 
 const RECORDS_CACHE_KEY = 'enterprise_release_records_v3';
 
@@ -191,6 +192,7 @@ export default function App() {
   }, []);
 
   const catalog = useCatalog(signedIn);
+  const registry = useServers(signedIn);
 
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -381,12 +383,16 @@ export default function App() {
             warning={catalog.warning}
             isLoading={catalog.isLoading}
             onReload={catalog.reload}
+            servers={registry.servers}
+            serversWarning={registry.warning}
+            onReloadServers={registry.reload}
           />
         ) : (
           <DashboardView
             records={records}
             isLoading={isLoading}
             onRecordUpdated={handleRecordUpdated}
+            findServer={registry.find}
           />
         )}
       </main>

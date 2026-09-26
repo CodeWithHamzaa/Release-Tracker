@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Pencil,
+  FileTerminal,
   FileCode,
   Sliders,
   Terminal,
@@ -15,6 +16,7 @@ export interface ReleaseCardProps {
   isExpanded?: boolean;
   onToggle?: () => void;
   onEdit?: (record: ReleaseRecord) => void;
+  onRunbook?: (record: ReleaseRecord) => void;
 }
 
 type StatusKey = 'SUCCESS' | 'FAILED' | 'PENDING';
@@ -144,6 +146,7 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
   isExpanded: controlledExpanded,
   onToggle,
   onEdit,
+  onRunbook,
 }) => {
   const [internalExpanded, setInternalExpanded] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -344,6 +347,19 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
               ))}
             </div>
 
+            <div className="flex flex-shrink-0 items-center gap-2">
+            {onRunbook && (
+              <button
+                type="button"
+                id={`btn-runbook-${record.id}`}
+                onClick={() => onRunbook(record)}
+                className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                title="Patch runbook for alara_server.sh on this server"
+              >
+                <FileTerminal className="h-3.5 w-3.5" />
+                Runbook
+              </button>
+            )}
             {onEdit && (
               <button
                 type="button"
@@ -356,6 +372,7 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
                 Edit
               </button>
             )}
+            </div>
           </div>
 
           {/* Release note — the headline of the entry, so it leads and reads big. */}

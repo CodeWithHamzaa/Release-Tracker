@@ -15,6 +15,8 @@ import {
 import { parseCompose, findPortConflicts, ComposeParseResult, PortBinding } from '@/lib/compose';
 import { apiFetch, apiErrorMessage } from '../api';
 import type { CatalogService } from '../useCatalog';
+import type { ServerNode } from '../useServers';
+import { ServersPanel } from './ServersPanel';
 
 interface CatalogViewProps {
   services: CatalogService[];
@@ -22,6 +24,9 @@ interface CatalogViewProps {
   warning: string | null;
   isLoading: boolean;
   onReload: () => Promise<void> | void;
+  servers: ServerNode[];
+  serversWarning: string | null;
+  onReloadServers: () => Promise<void> | void;
 }
 
 const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
@@ -75,8 +80,9 @@ interface PreviewRow {
 const ComposeImport: React.FC<{
   services: CatalogService[];
   groups: string[];
+  servers: ServerNode[];
   onSaved: () => Promise<void> | void;
-}> = ({ services, groups, onSaved }) => {
+}> = ({ services, groups, servers, onSaved }) => {
   const [environment, setEnvironment] = useState<string>('SIT');
   const [host, setHost] = useState('');
   const [yamlText, setYamlText] = useState('');
@@ -88,10 +94,15 @@ const ComposeImport: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  const knownHosts = useMemo(
-    () => [...new Set(services.flatMap((s) => s.ports.map((p) => p.host)))].sort(),
-    [services]
-  );
+  // Suggest registry servers for the chosen environment ("ChatBot 10.42.42.250"),
+  // then any host label already used by an earlier import.
+  const knownHosts = useMemo(() => {
+    const fromRegistry = servers
+      .filter((s) => s.environment === environment && s.ip)
+      .map((s) => `${s.role === 'ChatBot / NLU' ? 'ChatBot' : s.role} ${s.ip}`);
+    const fromImports = services.flatMap((s) => s.ports.filter((p) => p.environment === environment).map((p) => p.host));
+    return [...new Set([...fromRegistry, ...fromImports])];
+  }, [services, servers, environment]);
 
   const handleParse = () => {
     setError(null);
@@ -365,7 +376,16 @@ const ComposeImport: React.FC<{
 
 // ── Catalog page ────────────────────────────────────────────────────────────
 
-export const CatalogView: React.FC<CatalogViewProps> = ({ services, editable, warning, isLoading, onReload }) => {
+export const CatalogView: React.FC<CatalogViewProps> = ({
+  services,
+  editable,
+  warning,
+  isLoading,
+  onReload,
+  servers,
+  serversWarning,
+  onReloadServers,
+}) => {
   const [newGroup, setNewGroup] = useState('');
   const [newName, setNewName] = useState('');
   const [editing, setEditing] = useState<{ id: string; server: string; name: string } | null>(null);
@@ -480,9 +500,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ services, editable, wa
             </button>
           </form>
 
-          <ComposeImport services={services} groups={groups} onSaved={onReload} />
+          <ComposeImport services={services} groups={groups} servers={servers} onSaved={onReload} />
         </>
       )}
+
+      <ServersPanel servers={servers} warning={serversWarning} onReload={onReloadServers} />
 
       <div className="grid gap-4 md:grid-cols-2">
         {byGroup.map(([group, list]) => (
