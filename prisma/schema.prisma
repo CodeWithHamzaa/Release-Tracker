@@ -31,3 +31,35 @@ model ReleaseRecord {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
+
+// Service catalog: the servers (groups) and services offered in the Add Record
+// form, plus the host ports each service publishes per environment and host
+// (filled by the docker-compose import on the Catalog page).
+model Service {
+  id        String        @id @default(uuid())
+  server    String        // group, e.g. Bot-Builder, Database
+  name      String        // e.g. ldap-connector
+  image     String?       // image from the last imported compose file
+  ports     ServicePort[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([server, name])
+}
+
+model ServicePort {
+  id            String   @id @default(uuid())
+  serviceId     String
+  service       Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  environment   String   // SIT, UAT, Prod
+  host          String   // host label chosen at import, e.g. sit-app-01
+  hostPort      Int
+  containerPort Int
+  protocol      String   @default("tcp")
+  hostIp        String?
+  createdAt     DateTime @default(now())
+
+  // One service per host port: a second binding is a port conflict.
+  @@unique([environment, host, hostPort, protocol])
+  @@index([serviceId])
+}

@@ -85,37 +85,3 @@ export interface CreateBatchReleaseInput {
   note?: string | null;
   services: BatchServiceInput[];
 }
-
-export const ARCHITECTURE_CATALOG: Record<string, string[]> = {
-  'Bot-Builder': [
-    'ldap-connector',
-    'rbac-service',
-    'nginx',
-    'media-service',
-    'omni-channel-nodejs',
-    'single-intent',
-    'alara-ui',
-    'mcpherson-ui',
-    'bot_builder_fbl_service',
-    'elasticsearch',
-    'elastic-search-service',
-    'minio',
-  ],
-  'ChatBot / NLU': [
-    'retriever_api_service',
-    'common-service',
-    'litellm-service',
-    'litellm-db',
-  ],
-  'Database': [
-    'redis-db',
-    'mongo-db',
-    'kafka',
-    'qdrant',
-    'mysql-db',
-  ],
-  'Chat-Service': [
-    'chat-service',
-    'chat-service-worker',
-  ],
-};

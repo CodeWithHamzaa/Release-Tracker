@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch, apiErrorMessage } from '../api';
 import {
   X,
   CheckCircle2,
@@ -22,7 +23,6 @@ interface EditRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdateSuccess: (updated: ReleaseRecord) => void;
-  apiSecretKey?: string;
 }
 
 export const EditRecordModal: React.FC<EditRecordModalProps> = ({
@@ -30,7 +30,6 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
   isOpen,
   onClose,
   onUpdateSuccess,
-  apiSecretKey,
 }) => {
   const [status, setStatus] = useState<ReleaseStatus>('PENDING');
   const [version, setVersion] = useState('');
@@ -109,29 +108,13 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
     };
 
     try {
-      const token =
-        apiSecretKey ||
-        import.meta.env.VITE_API_SECRET_KEY ||
-        'your-enterprise-release-api-secret';
-
-      // Call the standardized PATCH /api/records/[id] endpoint
-      const res = await fetch(`/api/records/${record.id}`, {
+      const res = await apiFetch(`/api/records/${record.id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(updatedPayload),
       });
 
       if (!res.ok) {
-        let errData: any = {};
-        try {
-          errData = await res.json();
-        } catch {
-          // ignore
-        }
-        throw new Error(errData.message || `Failed to update record (status ${res.status})`);
+        throw new Error(await apiErrorMessage(res, 'Failed to update record'));
       }
 
       // PATCH responds with { success, record }, not the record directly
@@ -146,15 +129,8 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
       onUpdateSuccess(updatedRecord);
       onClose();
     } catch (err: any) {
-      console.warn('API update failed, updating locally:', err);
-      // Fallback local update for preview
-      const localUpdated: ReleaseRecord = {
-        ...record,
-        ...updatedPayload,
-        updatedAt: new Date().toISOString(),
-      };
-      onUpdateSuccess(localUpdated);
-      onClose();
+      // Keep the modal open with the error; never show an edit the server didn't save.
+      setErrorMsg(err?.message || 'Could not reach the release API. Nothing was saved.');
     } finally {
       setIsLoading(false);
     }

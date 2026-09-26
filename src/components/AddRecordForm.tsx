@@ -22,10 +22,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
-import servicesConfig from '@/config/services.json';
 import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
-
-const ARCHITECTURE_SERVICES: Record<string, string[]> = servicesConfig;
+import { apiFetch, apiErrorMessage } from '../api';
 
 export interface ServiceFormBlock {
   id: string;
@@ -40,14 +38,16 @@ export interface ServiceFormBlock {
 interface AddRecordFormProps {
   onSuccess: (newRecords: ReleaseRecord | ReleaseRecord[]) => void;
   onCancel: () => void;
-  apiSecretKey?: string;
+  // Server (group) -> services, from the catalog (see useCatalog).
+  catalog: Record<string, string[]>;
 }
 
 export const AddRecordForm: React.FC<AddRecordFormProps> = ({
   onSuccess,
   onCancel,
-  apiSecretKey,
+  catalog,
 }) => {
+  const ARCHITECTURE_SERVICES = catalog;
   const availableServers = Object.keys(ARCHITECTURE_SERVICES);
   const defaultServer = availableServers[0] || 'Bot-Builder';
   const defaultServices = ARCHITECTURE_SERVICES[defaultServer] || [];
@@ -250,30 +250,13 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
     setIsLoading(true);
 
     try {
-      const token =
-        apiSecretKey ||
-        import.meta.env.VITE_API_SECRET_KEY ||
-        'your-enterprise-release-api-secret';
-
-      const res = await fetch('/api/records', {
+      const res = await apiFetch('/api/records', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(batchPayload),
       });
 
       if (!res.ok) {
-        let errData: any = {};
-        try {
-          errData = await res.json();
-        } catch {
-          // ignore
-        }
-        throw new Error(
-          errData.message || `API submission failed with status code ${res.status}`
-        );
+        throw new Error(await apiErrorMessage(res, 'Saving the release failed'));
       }
 
       const resJson = await res.json();
@@ -292,38 +275,9 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
         onSuccess(createdList);
       }, 700);
     } catch (err: any) {
-      console.warn('API route fallback or error during batch submission:', err);
-
-      // Local fallback generation for offline / development
-      const sharedTime = new Date().toISOString();
-      const fallbackList: ReleaseRecord[] = validatedServices.map((s) => ({
-        id: crypto.randomUUID(),
-        environment,
-        server: s.server,
-        service: s.service,
-        version: s.version,
-        developerName: s.developerName,
-        status,
-        isBuildUpdate,
-        isEnvUpdate,
-        envDetails: isEnvUpdate ? envDetails.trim() : null,
-        isConfigUpdate,
-        configDetails: isConfigUpdate ? configDetails.trim() : null,
-        hasCommands,
-        commandDetails: hasCommands ? commandDetails.trim() : null,
-        note: note.trim() || null,
-        added_by: addedBy,
-        createdAt: sharedTime,
-        updatedAt: sharedTime,
-      }));
-
-      setSuccessMsg(
-        `Batch release logged locally! (${fallbackList.length} services staged for ${environment})`
-      );
-
-      setTimeout(() => {
-        onSuccess(fallbackList);
-      }, 700);
+      // Never fake a local save: a record that only exists in this tab would
+      // look saved and vanish on reload.
+      setErrorMsg(err?.message || 'Could not reach the release API. Nothing was saved.');
     } finally {
       setIsLoading(false);
     }

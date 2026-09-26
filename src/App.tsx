@@ -1,9 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { Loader2 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { AddRecordForm } from './components/AddRecordForm';
+import { CatalogView } from './components/CatalogView';
+import { LoginView } from './components/LoginView';
 import { ReleaseRecord } from '@/lib/types';
 import { getSupabaseClient } from '@/lib/supabase';
+import { apiFetch, apiErrorMessage } from './api';
+import { useCatalog, CatalogService } from './useCatalog';
+
+const RECORDS_CACHE_KEY = 'enterprise_release_records_v3';
 
 // Initial enterprise release dataset reflecting Docker Compose architecture
 const INITIAL_RECORDS: ReleaseRecord[] = [
@@ -158,9 +166,35 @@ const INITIAL_RECORDS: ReleaseRecord[] = [
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>('/');
+
+  // Login. With no Supabase configured (local dev only) auth is off entirely,
+  // matching the API, which skips auth in that case too.
+  const authEnabled = getSupabaseClient() !== null;
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState<boolean>(!authEnabled);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const signedIn = !authEnabled || session !== null;
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+      if (next) setAuthNotice(null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const catalog = useCatalog(signedIn);
+
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('enterprise_release_records_v3');
+      const saved = localStorage.getItem(RECORDS_CACHE_KEY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -184,21 +218,22 @@ export default function App() {
   // Sync to local storage for persistence across reloads
   useEffect(() => {
     try {
-      localStorage.setItem('enterprise_release_records_v3', JSON.stringify(records));
+      localStorage.setItem(RECORDS_CACHE_KEY, JSON.stringify(records));
     } catch {
       // ignore
     }
   }, [records]);
 
   // Real-time Supabase connection check and listener (INSERT, UPDATE & DELETE)
+  // Subscribes only once signed in: with row-level security on ReleaseRecord,
+  // realtime delivers changes only to authenticated users.
   useEffect(() => {
     const supabase = getSupabaseClient();
-    if (!supabase) {
+    if (!supabase || !userId) {
       setIsRealtimeConnected(false);
       return;
     }
 
-    setIsRealtimeConnected(true);
     const channel = supabase
       .channel('schema-db-changes')
       .on(
@@ -233,20 +268,28 @@ export default function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userId]);
 
-  // Fetch latest records from API or fallback
+  // Fetch latest records from the API
   const fetchRecords = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/records');
+      const res = await apiFetch('/api/records');
+      if (res.status === 401) {
+        // apiFetch already signed out locally; the login screen takes over.
+        setAuthNotice('Your session expired. Sign in again.');
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(await apiErrorMessage(res, 'Failed to load records'));
+        return;
+      }
       const data = await res.json().catch(() => null);
-      if (res.ok && data && Array.isArray(data.records)) {
+      if (data && Array.isArray(data.records)) {
         setRecords(data.records);
         setLoadError(null);
       } else {
-        const reason = data?.reason ? ` (${data.reason})` : '';
-        setLoadError(`${data?.message || `Failed to load records (HTTP ${res.status})`}${reason}`);
+        setLoadError('The release API returned an unexpected response.');
       }
     } catch {
       setLoadError('Could not reach the release API.');
@@ -255,10 +298,31 @@ export default function App() {
     }
   }, []);
 
-  // Load live data from the API on initial mount instead of showing mock data
+  // Load live data once signed in (and again after switching accounts).
   useEffect(() => {
-    fetchRecords();
+    if (signedIn) fetchRecords();
+  }, [signedIn, userId, fetchRecords]);
+
+  const handleSignOut = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    // Drop the cached records so the next person at this browser sees nothing.
+    try {
+      localStorage.removeItem(RECORDS_CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    setRecords([]);
+    setCurrentPath('/');
+    await supabase?.auth.signOut();
   }, []);
+
+  // The catalog page lists config/services.json when there is no database.
+  const catalogServices = useMemo<CatalogService[]>(() => {
+    if (catalog.source === 'database') return catalog.services;
+    return Object.entries<string[]>(catalog.serverMap).flatMap(([server, names]) =>
+      names.map((name) => ({ id: `${server}::${name}`, server, name, image: null, ports: [] }))
+    );
+  }, [catalog.source, catalog.services, catalog.serverMap]);
 
   const handleNewRecord = useCallback((incoming: ReleaseRecord | ReleaseRecord[]) => {
     const list = Array.isArray(incoming) ? incoming : [incoming];
@@ -273,12 +337,25 @@ export default function App() {
     );
   }, []);
 
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center" aria-busy="true">
+        <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
+      </div>
+    );
+  }
+  if (!signedIn) {
+    return <LoginView notice={authNotice} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-slate-300 flex flex-col font-sans selection:bg-emerald-950 selection:text-emerald-300">
       <Navbar
         currentPath={currentPath}
         onNavigate={(path) => setCurrentPath(path)}
         isRealtimeConnected={isRealtimeConnected}
+        userEmail={session?.user?.email ?? null}
+        onSignOut={authEnabled ? handleSignOut : undefined}
       />
 
       <main className="flex-1">
@@ -293,8 +370,17 @@ export default function App() {
         )}
         {currentPath === '/add' ? (
           <AddRecordForm
+            catalog={catalog.serverMap}
             onSuccess={handleNewRecord}
             onCancel={() => setCurrentPath('/')}
+          />
+        ) : currentPath === '/catalog' ? (
+          <CatalogView
+            services={catalogServices}
+            editable={catalog.source === 'database'}
+            warning={catalog.warning}
+            isLoading={catalog.isLoading}
+            onReload={catalog.reload}
           />
         ) : (
           <DashboardView

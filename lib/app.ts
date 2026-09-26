@@ -10,6 +10,8 @@
 import express, { Request, Response } from 'express';
 import { ReleaseRecord, ReleaseStatus } from './types.js';
 import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
+import { requireAuth } from './auth.js';
+import { findPortConflicts, PortBinding } from './compose.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -147,29 +149,6 @@ const memoryRecords: ReleaseRecord[] = [
   },
 ];
 
-// Helper: Bearer auth verification.
-// Fails closed: a missing or malformed Authorization header, an empty token,
-// or an unconfigured server secret all reject the request.
-function isAuthorized(req: Request): boolean {
-  const authHeader = req.headers.authorization || req.headers.Authorization;
-  if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-    return false;
-  }
-
-  const token = authHeader.substring(7).trim();
-  if (!token) {
-    return false;
-  }
-
-  // No hardcoded fallback: writes are rejected until a secret is configured.
-  const validSecret = process.env.API_SECRET_KEY || process.env.VITE_API_SECRET_KEY;
-  if (!validSecret) {
-    return false;
-  }
-
-  return token === validSecret;
-}
-
 // Helper: turn a database failure into a response. An unreachable or
 // unconfigured database is a 503; anything else (a failed query) is a 500.
 // Never falls back to memoryRecords -- that fallback is only for local dev
@@ -245,6 +224,13 @@ router.get('/health', async (req: Request, res: Response) => {
   }
 });
 
+// Every API route below requires a signed-in user (see lib/auth.ts); /health
+// stays open so a deployment can be checked without logging in. Scoped by
+// path, not router-wide: this router is also mounted at the root (see the
+// bottom of the file), where a blanket guard would 401 the SPA's own pages
+// and assets under `npm run dev` / self-hosting. New route prefixes go here.
+router.use(['/records', '/catalog'], requireAuth);
+
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
   try {
@@ -286,10 +272,6 @@ router.get('/records/:id', async (req: Request, res: Response) => {
 
 // 4. POST create single or batch release records
 router.post('/records', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing Bearer token.' });
-  }
-
   try {
     const body = req.body;
     const isDirectArray = Array.isArray(body) && body.length > 0;
@@ -443,10 +425,6 @@ router.post('/records', async (req: Request, res: Response) => {
 
 // 5. PATCH update release record
 router.patch('/records/:id', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing Bearer token.' });
-  }
-
   const { id } = req.params;
   const data = pickEditableFields(req.body);
 
@@ -483,10 +461,6 @@ router.patch('/records/:id', async (req: Request, res: Response) => {
 
 // 6. DELETE release record
 router.delete('/records/:id', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing Bearer token.' });
-  }
-
   const { id } = req.params;
 
   try {
@@ -508,6 +482,241 @@ router.delete('/records/:id', async (req: Request, res: Response) => {
   }
   memoryRecords.splice(idx, 1);
   res.json({ success: true, message: `Record ${id} deleted.` });
+});
+
+// ── Service catalog ─────────────────────────────────────────────────────────
+// Servers (groups) and services for the Add Record form, plus the host ports
+// each service publishes per environment + host (from docker-compose imports).
+// Local dev without a database has no catalog: GET answers dataSource
+// 'memory' with no services and the UI falls back to config/services.json.
+
+const CATALOG_ENVIRONMENTS = ['SIT', 'UAT', 'Prod'];
+const CATALOG_PROTOCOLS = ['tcp', 'udp', 'sctp'];
+
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string })?.code === 'P2002';
+}
+
+function cleanLabel(value: unknown, max = 100): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  return v && v.length <= max ? v : null;
+}
+
+function isPort(n: unknown): n is number {
+  return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 65535;
+}
+
+async function requireCatalogDb(res: Response) {
+  const prisma = await getPrismaClient();
+  if (!prisma) {
+    res.status(503).json({
+      error: 'Service Unavailable',
+      message: 'Editing the catalog needs a database. Set DATABASE_URL.',
+    });
+  }
+  return prisma;
+}
+
+router.get('/catalog', async (req: Request, res: Response) => {
+  try {
+    const prisma = await getPrismaClient();
+    if (!prisma) {
+      return res.json({ success: true, dataSource: 'memory', services: [] });
+    }
+    const services = await prisma.service.findMany({
+      orderBy: [{ server: 'asc' }, { name: 'asc' }],
+      include: {
+        ports: { orderBy: [{ environment: 'asc' }, { host: 'asc' }, { hostPort: 'asc' }] },
+      },
+    });
+    res.json({ success: true, dataSource: 'database', services });
+  } catch (err) {
+    return sendDbError(res, err, 'load the service catalog');
+  }
+});
+
+router.post('/catalog/services', async (req: Request, res: Response) => {
+  const server = cleanLabel(req.body?.server);
+  const name = cleanLabel(req.body?.name);
+  if (!server || !name) {
+    return res.status(400).json({ error: 'Bad Request', message: 'server and name are required (max 100 characters).' });
+  }
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const service = await prisma.service.create({ data: { server, name }, include: { ports: true } });
+    res.status(201).json({ success: true, service });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Conflict', message: `${server} / ${name} is already in the catalog.` });
+    }
+    return sendDbError(res, err, 'add the service');
+  }
+});
+
+router.patch('/catalog/services/:id', async (req: Request, res: Response) => {
+  const data: { server?: string; name?: string } = {};
+  for (const key of ['server', 'name'] as const) {
+    if (req.body?.[key] === undefined) continue;
+    const v = cleanLabel(req.body[key]);
+    if (!v) {
+      return res.status(400).json({ error: 'Bad Request', message: `${key} must be 1-100 characters.` });
+    }
+    data[key] = v;
+  }
+  if (!data.server && !data.name) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Nothing to update.' });
+  }
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const service = await prisma.service.update({
+      where: { id: req.params.id },
+      data,
+      include: { ports: true },
+    });
+    res.json({ success: true, service });
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return res.status(404).json({ error: 'Not Found', message: 'Service not found.' });
+    }
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Conflict', message: 'A service with that group and name already exists.' });
+    }
+    return sendDbError(res, err, 'update the service');
+  }
+});
+
+router.delete('/catalog/services/:id', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    await prisma.service.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    if (isRecordNotFound(err)) {
+      return res.status(404).json({ error: 'Not Found', message: 'Service not found.' });
+    }
+    return sendDbError(res, err, 'delete the service');
+  }
+});
+
+// Save a parsed docker-compose file: upsert its services and replace their
+// published ports on this environment + host. Ports of services NOT in the
+// file are kept (one host can run several compose files); if the file would
+// reuse one of those ports, nothing is saved and the clash is returned (409).
+router.post('/catalog/import', async (req: Request, res: Response) => {
+  const environment = cleanLabel(req.body?.environment);
+  const host = cleanLabel(req.body?.host);
+  const incoming = Array.isArray(req.body?.services) ? req.body.services : null;
+  if (!environment || !CATALOG_ENVIRONMENTS.includes(environment)) {
+    return res.status(400).json({ error: 'Bad Request', message: `environment must be one of ${CATALOG_ENVIRONMENTS.join(', ')}.` });
+  }
+  if (!host) {
+    return res.status(400).json({ error: 'Bad Request', message: 'host is required (max 100 characters).' });
+  }
+  if (!incoming || incoming.length === 0 || incoming.length > 200) {
+    return res.status(400).json({ error: 'Bad Request', message: 'services must list 1-200 services.' });
+  }
+
+  type ImportPort = { hostPort: number; containerPort: number; protocol: string; hostIp: string | null };
+  const services: { server: string; name: string; image: string | null; ports: ImportPort[] }[] = [];
+  for (const raw of incoming) {
+    const server = cleanLabel(raw?.server);
+    const name = cleanLabel(raw?.name);
+    if (!server || !name) {
+      return res.status(400).json({ error: 'Bad Request', message: 'Every service needs a server (group) and name.' });
+    }
+    if (services.some((s) => s.name === name && s.server === server)) {
+      return res.status(400).json({ error: 'Bad Request', message: `${name} is listed twice.` });
+    }
+    const ports: ImportPort[] = [];
+    for (const p of Array.isArray(raw.ports) ? raw.ports : []) {
+      const protocol = String(p?.protocol || 'tcp').toLowerCase();
+      if (!isPort(p?.hostPort) || !isPort(p?.containerPort) || !CATALOG_PROTOCOLS.includes(protocol)) {
+        return res.status(400).json({ error: 'Bad Request', message: `${name} has an invalid port.` });
+      }
+      // The same binding listed twice in one service is harmless; keep one.
+      if (!ports.some((q) => q.hostPort === p.hostPort && q.protocol === protocol)) {
+        ports.push({ hostPort: p.hostPort, containerPort: p.containerPort, protocol, hostIp: cleanLabel(p.hostIp) });
+      }
+    }
+    services.push({ server, name, image: cleanLabel(raw.image, 300), ports });
+  }
+
+  const inFile = findPortConflicts(
+    services.flatMap((s) => s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })))
+  );
+  if (inFile.length > 0) {
+    return res.status(409).json({ error: 'Conflict', message: 'The file binds the same host port twice.', conflicts: inFile });
+  }
+
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+
+    const result = await prisma.$transaction(
+      async (tx: any) => {
+        const keys = services.map((s) => ({ server: s.server, name: s.name }));
+        const existing = await tx.service.findMany({ where: { OR: keys } });
+        const existingKey = new Set(existing.map((s: any) => `${s.server}\u0000${s.name}`));
+        const toCreate = services.filter((s) => !existingKey.has(`${s.server}\u0000${s.name}`));
+        if (toCreate.length > 0) {
+          await tx.service.createMany({
+            data: toCreate.map((s) => ({ server: s.server, name: s.name, image: s.image })),
+            skipDuplicates: true,
+          });
+        }
+        const rows = await tx.service.findMany({ where: { OR: keys } });
+        const idOf = new Map<string, string>(rows.map((s: any) => [`${s.server}\u0000${s.name}`, s.id]));
+        const imageOf = new Map<string, string | null>(rows.map((s: any) => [s.id, s.image]));
+        const ids = [...idOf.values()];
+
+        // Clashes with ports already saved for OTHER services on this host.
+        const others = await tx.servicePort.findMany({
+          where: { environment, host, serviceId: { notIn: ids } },
+          include: { service: { select: { name: true } } },
+        });
+        const clashes = findPortConflicts([
+          ...others.map((p: any): PortBinding => ({ service: p.service.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })),
+          ...services.flatMap((s) => s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol }))),
+        ]);
+        if (clashes.length > 0) return { clashes };
+
+        for (const s of services) {
+          const id = idOf.get(`${s.server}\u0000${s.name}`)!;
+          if (s.image && imageOf.get(id) !== s.image) {
+            await tx.service.update({ where: { id }, data: { image: s.image } });
+          }
+        }
+        await tx.servicePort.deleteMany({ where: { environment, host, serviceId: { in: ids } } });
+        const portRows = services.flatMap((s) =>
+          s.ports.map((p) => ({ ...p, environment, host, serviceId: idOf.get(`${s.server}\u0000${s.name}`)! }))
+        );
+        if (portRows.length > 0) {
+          await tx.servicePort.createMany({ data: portRows });
+        }
+        return { created: toCreate.map((s) => s.name), ports: portRows.length };
+      },
+      // Several round trips through the pooler; the 5s default is tight.
+      { timeout: 20_000, maxWait: 10_000 }
+    );
+
+    if ('clashes' in result) {
+      return res.status(409).json({
+        error: 'Conflict',
+        message: `Port already used by another service on ${environment} / ${host}.`,
+        conflicts: result.clashes,
+      });
+    }
+    res.json({ success: true, services: services.length, created: result.created, ports: result.ports });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Conflict', message: 'A port was taken by another save at the same moment. Try again.' });
+    }
+    return sendDbError(res, err, 'import the compose file');
+  }
 });
 
 // Mount the API. Vercel's rewrite may or may not preserve the /api prefix by the
