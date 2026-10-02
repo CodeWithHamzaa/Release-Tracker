@@ -59,8 +59,10 @@ model ServicePort {
   hostIp        String?
   createdAt     DateTime @default(now())
 
-  // One service per host port: a second binding is a port conflict.
-  @@unique([environment, host, hostPort, protocol])
+  // A service binds each host port once. Two services on the same host port
+  // are allowed (reverse proxies) and reported as warnings by the import.
+  @@unique([serviceId, environment, host, hostPort, protocol])
+  @@index([environment, host])
   @@index([serviceId])
 }
 

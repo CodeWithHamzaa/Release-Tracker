@@ -14,6 +14,8 @@ import {
   FileCode,
   Tag,
   ChevronDown,
+  Trash2,
+  CalendarClock,
 } from 'lucide-react';
 import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
 import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
@@ -23,6 +25,15 @@ interface EditRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdateSuccess: (updated: ReleaseRecord) => void;
+  onDeleteSuccess?: (id: string) => void;
+}
+
+// <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm.
+function toLocalInputValue(value: string | Date): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export const EditRecordModal: React.FC<EditRecordModalProps> = ({
@@ -30,7 +41,10 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
   isOpen,
   onClose,
   onUpdateSuccess,
+  onDeleteSuccess,
 }) => {
+  const [deployedAt, setDeployedAt] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   const [status, setStatus] = useState<ReleaseStatus>('PENDING');
   const [version, setVersion] = useState('');
   const [developerName, setDeveloperName] = useState('');
@@ -73,11 +87,31 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
       setConfigDetails(record.configDetails || '');
       setHasCommands(Boolean(record.hasCommands));
       setCommandDetails(record.commandDetails || '');
+      setDeployedAt(toLocalInputValue(record.createdAt));
       setErrorMsg(null);
     }
   }, [record, isOpen]);
 
   if (!isOpen || !record) return null;
+
+  const handleDelete = async () => {
+    const label = `${record.service} ${record.version} (${record.environment})`;
+    if (!window.confirm(`Delete the release record ${label}? This cannot be undone.`)) return;
+    setIsDeleting(true);
+    setErrorMsg(null);
+    try {
+      const res = await apiFetch(`/api/records/${record.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error(await apiErrorMessage(res, 'Failed to delete record'));
+      }
+      onDeleteSuccess?.(record.id);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Could not reach the release API. Nothing was deleted.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +120,18 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
     if (!developerName.trim()) {
       setErrorMsg('Developer name cannot be blank.');
       return;
+    }
+
+    // Only send the date when it was changed, so an untouched form never
+    // shifts the stored time by the seconds the input can't show.
+    let createdAt: string | undefined;
+    if (deployedAt !== toLocalInputValue(record.createdAt)) {
+      const parsed = new Date(deployedAt);
+      if (!deployedAt || Number.isNaN(parsed.getTime())) {
+        setErrorMsg('Pick a valid deployment date and time.');
+        return;
+      }
+      createdAt = parsed.toISOString();
     }
 
     setIsLoading(true);
@@ -105,6 +151,7 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
       configDetails: isConfigUpdate ? configDetails.trim() : null,
       hasCommands,
       commandDetails: hasCommands ? commandDetails.trim() : null,
+      ...(createdAt ? { createdAt } : {}),
     };
 
     try {
@@ -268,6 +315,27 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
             </div>
           </div>
 
+          {/* Deployment date: correct or backdate when the release happened */}
+          <div>
+            <label
+              htmlFor="edit-deployed-at"
+              className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5"
+            >
+              Deployment Date
+            </label>
+            <div className="relative">
+              <CalendarClock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                id="edit-deployed-at"
+                type="datetime-local"
+                value={deployedAt}
+                onChange={(e) => setDeployedAt(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 [color-scheme:dark]"
+                required
+              />
+            </div>
+          </div>
+
           {/* 3. Environment & Service Target */}
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -404,6 +472,18 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
 
           {/* Modal Footer */}
           <div className="pt-3 border-t border-zinc-800 flex items-center justify-end space-x-3">
+            {onDeleteSuccess && (
+              <button
+                type="button"
+                id="btn-delete-record"
+                onClick={handleDelete}
+                disabled={isDeleting || isLoading}
+                className="mr-auto inline-flex items-center px-3.5 py-2 text-xs sm:text-sm font-semibold text-rose-300 border border-rose-900/70 bg-rose-950/30 hover:bg-rose-900/40 hover:text-rose-200 disabled:opacity-50 rounded-xl transition-colors"
+              >
+                {isDeleting ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1.5" />}
+                Delete
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}

@@ -117,6 +117,17 @@ const ComposeImport: React.FC<{
     );
   };
 
+  // Discard the pasted file and its preview to start on another one.
+  // Environment and host label stay, since the next file is often the same host.
+  const handleClear = () => {
+    setYamlText('');
+    setVarsText('');
+    setParsed(null);
+    setRows([]);
+    setError(null);
+    setSaved(null);
+  };
+
   // Port clashes for the rows being imported: within the file, and against
   // ports already saved on this environment + host by services not in the file.
   const conflicts = useMemo(() => {
@@ -147,7 +158,7 @@ const ComposeImport: React.FC<{
   const includedRows = rows.filter((r) => r.include);
   const missingGroup = includedRows.some((r) => !r.group.trim());
   const canSave =
-    !!parsed && includedRows.length > 0 && !!host.trim() && !missingGroup && conflicts.length === 0 && !isSaving;
+    !!parsed && includedRows.length > 0 && !!host.trim() && !missingGroup && !isSaving;
 
   const handleSave = async () => {
     if (!parsed) return;
@@ -169,9 +180,11 @@ const ComposeImport: React.FC<{
         return;
       }
       const data = await res.json();
+      const shared = Array.isArray(data.warnings) ? data.warnings.length : 0;
       setSaved(
         `Saved ${data.services} service(s) and ${data.ports} port(s) for ${environment} / ${host.trim()}` +
-          (data.created?.length ? `. New in catalog: ${data.created.join(', ')}` : '.')
+          (data.created?.length ? `. New in catalog: ${data.created.join(', ')}` : '') +
+          (shared ? `. ${shared} shared host port(s) saved with a warning.` : '.')
       );
       setParsed(null);
       setRows([]);
@@ -254,10 +267,16 @@ const ComposeImport: React.FC<{
         <button type="button" onClick={handleParse} disabled={!yamlText.trim()} className={primaryButtonClass}>
           Parse
         </button>
+        {(yamlText || varsText || parsed || error || saved) && (
+          <button type="button" id="btn-import-clear" onClick={handleClear} className={buttonClass}>
+            <X className="h-3.5 w-3.5" />
+            Clear
+          </button>
+        )}
         {parsed && (
           <span className="text-xs text-zinc-500">
             {parsed.services.length} service(s) found
-            {!host.trim() && ' · enter a host label to check conflicts and save'}
+            {!host.trim() && ' · enter a host label to check shared ports and save'}
           </span>
         )}
       </div>
@@ -271,8 +290,9 @@ const ComposeImport: React.FC<{
       )}
 
       {conflicts.length > 0 && (
-        <Message kind="error">
-          <p className="font-semibold">Port conflicts on {environment} / {host.trim()}</p>
+        <Message kind="warn">
+          <p className="font-semibold">Shared host ports on {environment} / {host.trim()}</p>
+          <p className="mt-0.5">Two services publish the same port. Fine behind a reverse proxy; otherwise one container will fail to start. You can still save.</p>
           <ul className="mt-1 space-y-0.5">
             {conflicts.map((c) => (
               <li key={`${c.hostPort}/${c.protocol}`}>
@@ -338,7 +358,7 @@ const ComposeImport: React.FC<{
                               title={clash ? `Also used by ${clash.services.filter((n) => n !== row.name).join(', ')}` : undefined}
                               className={`rounded-md border px-1.5 py-0.5 font-mono ${
                                 clash
-                                  ? 'border-rose-700 bg-rose-950/60 text-rose-300'
+                                  ? 'border-amber-700 bg-amber-950/50 text-amber-300'
                                   : 'border-white/10 bg-white/[0.03] text-zinc-300'
                               }`}
                             >
@@ -368,6 +388,7 @@ const ComposeImport: React.FC<{
         <button type="button" onClick={handleSave} disabled={!canSave} className={primaryButtonClass}>
           {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
           Save {includedRows.length} service(s) to {environment} / {host.trim() || '…'}
+          {conflicts.length > 0 && ` (${conflicts.length} port warning${conflicts.length === 1 ? '' : 's'})`}
         </button>
       )}
     </section>

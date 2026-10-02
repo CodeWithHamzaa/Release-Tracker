@@ -25,6 +25,7 @@ interface DashboardViewProps {
   records: ReleaseRecord[];
   isLoading?: boolean;
   onRecordUpdated?: (record: ReleaseRecord) => void;
+  onRecordDeleted?: (id: string) => void;
   // Server registry lookup for the patch runbook.
   findServer?: (environment: string, role: string) => ServerNode | null;
 }
@@ -108,6 +109,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
   isLoading = false,
   onRecordUpdated,
+  onRecordDeleted,
   findServer,
 }) => {
   const [runbookRecord, setRunbookRecord] = useState<ReleaseRecord | null>(null);
@@ -623,6 +625,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           setEditingRecord(null);
         }}
         onUpdateSuccess={handleUpdateSuccess}
+        onDeleteSuccess={onRecordDeleted}
       />
 
       {runbookRecord && (

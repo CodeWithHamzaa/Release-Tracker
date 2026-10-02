@@ -333,6 +333,10 @@ export default function App() {
     setCurrentPath('/');
   }, []);
 
+  const handleRecordDeleted = useCallback((id: string) => {
+    setRecords((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
   const handleRecordUpdated = useCallback((updatedRecord: ReleaseRecord) => {
     setRecords((prev) =>
       prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r))
@@ -392,6 +396,7 @@ export default function App() {
             records={records}
             isLoading={isLoading}
             onRecordUpdated={handleRecordUpdated}
+            onRecordDeleted={handleRecordDeleted}
             findServer={registry.find}
           />
         )}

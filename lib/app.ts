@@ -12,6 +12,7 @@ import { ReleaseRecord, ReleaseStatus } from './types.js';
 import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
 import { requireAuth } from './auth.js';
 import { findPortConflicts, PortBinding } from './compose.js';
+import { parseRecordDate } from './recordDate.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -428,6 +429,19 @@ router.patch('/records/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = pickEditableFields(req.body);
 
+  // The deployment date can be corrected or backdated (createdAt is what the
+  // feed and Drift Matrix order by).
+  if (req.body?.createdAt !== undefined) {
+    const createdAt = parseRecordDate(req.body.createdAt);
+    if (!createdAt) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Deployment date is invalid (must be a real date after 2000 and not in the future).',
+      });
+    }
+    data.createdAt = createdAt;
+  }
+
   try {
     const prisma = await getPrismaClient();
     if (prisma) {
@@ -453,6 +467,7 @@ router.patch('/records/:id', async (req: Request, res: Response) => {
   const updated: ReleaseRecord = {
     ...memoryRecords[idx],
     ...(data as Partial<ReleaseRecord>),
+    ...(data.createdAt instanceof Date ? { createdAt: data.createdAt.toISOString() } : {}),
     updatedAt: new Date().toISOString(),
   };
   memoryRecords[idx] = updated;
@@ -604,8 +619,9 @@ router.delete('/catalog/services/:id', async (req: Request, res: Response) => {
 
 // Save a parsed docker-compose file: upsert its services and replace their
 // published ports on this environment + host. Ports of services NOT in the
-// file are kept (one host can run several compose files); if the file would
-// reuse one of those ports, nothing is saved and the clash is returned (409).
+// file are kept (one host can run several compose files). Host ports shared
+// by two services (in the file, or with already-saved services) are allowed
+// -- reverse-proxy setups do this on purpose -- and returned as `warnings`.
 router.post('/catalog/import', async (req: Request, res: Response) => {
   const environment = cleanLabel(req.body?.environment);
   const host = cleanLabel(req.body?.host);
@@ -645,13 +661,6 @@ router.post('/catalog/import', async (req: Request, res: Response) => {
     services.push({ server, name, image: cleanLabel(raw.image, 300), ports });
   }
 
-  const inFile = findPortConflicts(
-    services.flatMap((s) => s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })))
-  );
-  if (inFile.length > 0) {
-    return res.status(409).json({ error: 'Conflict', message: 'The file binds the same host port twice.', conflicts: inFile });
-  }
-
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
@@ -682,7 +691,6 @@ router.post('/catalog/import', async (req: Request, res: Response) => {
           ...others.map((p: any): PortBinding => ({ service: p.service.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })),
           ...services.flatMap((s) => s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol }))),
         ]);
-        if (clashes.length > 0) return { clashes };
 
         for (const s of services) {
           const id = idOf.get(`${s.server}\u0000${s.name}`)!;
@@ -697,23 +705,28 @@ router.post('/catalog/import', async (req: Request, res: Response) => {
         if (portRows.length > 0) {
           await tx.servicePort.createMany({ data: portRows });
         }
-        return { created: toCreate.map((s) => s.name), ports: portRows.length };
+        return { created: toCreate.map((s) => s.name), ports: portRows.length, warnings: clashes };
       },
       // Several round trips through the pooler; the 5s default is tight.
       { timeout: 20_000, maxWait: 10_000 }
     );
 
-    if ('clashes' in result) {
-      return res.status(409).json({
-        error: 'Conflict',
-        message: `Port already used by another service on ${environment} / ${host}.`,
-        conflicts: result.clashes,
-      });
-    }
-    res.json({ success: true, services: services.length, created: result.created, ports: result.ports });
+    res.json({
+      success: true,
+      services: services.length,
+      created: result.created,
+      ports: result.ports,
+      warnings: result.warnings,
+    });
   } catch (err) {
     if (isUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Conflict', message: 'A port was taken by another save at the same moment. Try again.' });
+      // Only possible while the database still has the old one-service-per-
+      // host-port index from 001.
+      return res.status(409).json({
+        error: 'Conflict',
+        message:
+          'This database still blocks two services on the same host port. Run prisma/manual/003_allow_shared_host_ports.sql in Supabase, then save again.',
+      });
     }
     return sendDbError(res, err, 'import the compose file');
   }
