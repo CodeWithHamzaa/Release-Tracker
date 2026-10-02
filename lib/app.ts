@@ -13,6 +13,7 @@ import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
 import { requireAuth } from './auth.js';
 import { findPortConflicts, PortBinding } from './compose.js';
 import { parseRecordDate } from './recordDate.js';
+import { parseToolkitOutput } from './toolkitParse.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -230,7 +231,7 @@ router.get('/health', async (req: Request, res: Response) => {
 // path, not router-wide: this router is also mounted at the root (see the
 // bottom of the file), where a blanket guard would 401 the SPA's own pages
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
-router.use(['/records', '/catalog', '/servers', '/configs'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports'], requireAuth);
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
@@ -945,6 +946,124 @@ router.delete('/configs/:fileId', async (req: Request, res: Response) => {
   } catch (err) {
     if (isRecordNotFound(err)) return res.status(404).json({ error: 'Not Found', message: 'File not found.' });
     return sendDbError(res, err, 'delete the config file');
+  }
+});
+
+// ── Health reports ─────────────────────────────────────────────────────────
+// ALARA toolkit output carried out of the air gap: .snapshot files and
+// `alara_server.sh status` / `doctor` output. Parsed here (lib/toolkitParse)
+// so only recognised output is stored; environment and role come from the
+// content itself, never from the client.
+
+const HEALTH_MAX_BYTES = 1_000_000;
+const HEALTH_META = {
+  id: true,
+  environment: true,
+  role: true,
+  kind: true,
+  reportedAt: true,
+  host: true,
+  uploadedBy: true,
+  createdAt: true,
+} as const;
+
+router.get('/health-reports', async (req: Request, res: Response) => {
+  try {
+    const prisma = await getPrismaClient();
+    if (!prisma) return res.json({ success: true, dataSource: 'memory', reports: [] });
+    // Latest report per environment + role + kind (parsed, without raw text).
+    const reports = await prisma.healthReport.findMany({
+      distinct: ['environment', 'role', 'kind'],
+      orderBy: [{ environment: 'asc' }, { role: 'asc' }, { kind: 'asc' }, { reportedAt: 'desc' }],
+      select: { ...HEALTH_META, parsed: true },
+    });
+    res.json({ success: true, dataSource: 'database', reports });
+  } catch (err) {
+    return sendDbError(res, err, 'load health reports');
+  }
+});
+
+router.get('/health-reports/history', async (req: Request, res: Response) => {
+  const where: Record<string, string> = {};
+  for (const key of ['environment', 'role', 'kind'] as const) {
+    if (typeof req.query[key] === 'string' && req.query[key]) where[key] = req.query[key] as string;
+  }
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const reports = await prisma.healthReport.findMany({ where, orderBy: { reportedAt: 'desc' }, take: 50, select: HEALTH_META });
+    res.json({ success: true, reports });
+  } catch (err) {
+    return sendDbError(res, err, 'load the report history');
+  }
+});
+
+router.get('/health-reports/:id', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const report = await prisma.healthReport.findUnique({ where: { id: req.params.id } });
+    if (!report) return res.status(404).json({ error: 'Not Found', message: 'Report not found.' });
+    res.json({ success: true, report });
+  } catch (err) {
+    return sendDbError(res, err, 'load the report');
+  }
+});
+
+router.post('/health-reports', async (req: Request, res: Response) => {
+  const text = req.body?.text;
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Paste or upload the toolkit output as text.' });
+  }
+  if (Buffer.byteLength(text, 'utf8') > HEALTH_MAX_BYTES) {
+    return res.status(413).json({ error: 'Payload Too Large', message: 'Reports are limited to 1 MB.' });
+  }
+  let parsed;
+  try {
+    parsed = parseToolkitOutput(text);
+  } catch (err) {
+    return res.status(400).json({ error: 'Bad Request', message: (err as Error).message });
+  }
+  const generated = parsed.kind === 'snapshot' && parsed.generated ? new Date(parsed.generated) : null;
+  const reportedAt = generated && !Number.isNaN(generated.getTime()) ? generated : new Date();
+  const host = parsed.kind === 'snapshot' ? parsed.hostname : parsed.ip;
+
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const existing = await prisma.healthReport.findFirst({
+      where: { environment: parsed.environment, role: parsed.role, kind: parsed.kind, raw: text },
+      select: HEALTH_META,
+    });
+    if (existing) return res.json({ success: true, unchanged: true, report: existing });
+    const report = await prisma.healthReport.create({
+      data: {
+        environment: parsed.environment,
+        role: parsed.role,
+        kind: parsed.kind,
+        reportedAt,
+        host,
+        parsed: parsed as any,
+        raw: text,
+        uploadedBy: req.user?.email || 'local-dev',
+      },
+      select: { ...HEALTH_META, parsed: true },
+    });
+    res.status(201).json({ success: true, unchanged: false, report });
+  } catch (err) {
+    return sendDbError(res, err, 'save the report');
+  }
+});
+
+router.delete('/health-reports/:id', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    await prisma.healthReport.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    if (isRecordNotFound(err)) return res.status(404).json({ error: 'Not Found', message: 'Report not found.' });
+    return sendDbError(res, err, 'delete the report');
   }
 });
 

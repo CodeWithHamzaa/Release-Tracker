@@ -1,0 +1,26 @@
+# ALARA_RELEASE_SNAPSHOT
+# role: BOT_BUILDER
+# environment: SIT
+# hostname: alara-bb_sit
+# generated: 2026-10-02T04:10:21+00:00
+# script_version: 2.0
+#
+# NOTE: values marked SHA256:<hash> are sensitive (password/secret/key/
+# token/access-key/connection-string) — the hash lets you detect a change
+# without ever exposing the actual secret in this file.
+
+## IMAGES
+alara-ui2=registry.local/alara-ui:2.1.4|Up 6 hours
+ldap-connector=registry.local/ldap-connector:2.4.3|Up 6 hours (healthy)
+nginx=nginx:1.0|Up 6 hours
+
+## ENV:.env
+API_GATEWAY=https://eva.example/api
+FEATURE_X=on
+
+## ENV:.env_fbl
+JWT_SECRET=SHA256:d637087f73ed37e8110de31e88c9c5fd29a36366a3f8d90539be5f20c9c66327
+
+## ENV:.poly_env
+POLY=1
+

@@ -1,0 +1,31 @@
+
+[1m[0;36m  ALARA Doctor — Preflight[0m
+────────────────────────────────────────────────────────────
+
+  Server control  : v2.6
+  Detected role   : [1mChatBot / NLU[0m
+  Detected env    : [1mUAT[0m  (from IP 10.32.32.158)
+  Running as      : root
+  ALARA_HOME      : /srv/alara/chatbot_uat/alara
+  ALARA_WORKDIR   : /srv/alara/chatbot_uat
+
+  [0;32mok[0m    alara_common.sh
+  [0;31mMISS[0m  alara_key.sh
+  [0;31mMISS[0m  alara_env_encrypt.sh
+  [0;32mok[0m    alara_env_decrypt.sh
+  [0;31mMISS[0m  alara_start.sh
+  [0;31mMISS[0m  alara_env_generate.sh
+  [0;32mok[0m    alara_release_snapshot.sh
+  [0;32mok[0m    alara_release_compare.sh
+  [0;31mMISS[0m  alara_patch.sh
+
+  [0;32mok[0m    docker-compose.yml
+  [0;32mok[0m    .env_fbl
+  [0;32mok[0m    .env
+  [0;32mok[0m    master.key  (root:root 600)
+        key   fingerprint beb69bb37d7f66ff — [1;33mexpected fingerprint not set in alara_common.sh[0m
+  [0;32mok[0m    openssl
+  [0;32mok[0m    docker compose
+
+
+[0;31m[ERROR][0m Preflight FAILED — resolve the items above before proceeding.

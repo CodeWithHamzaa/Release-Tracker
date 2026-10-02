@@ -20,6 +20,7 @@ import { EditRecordModal } from './EditRecordModal';
 import { RunbookModal } from './RunbookModal';
 import { SyncLinesModal } from './SyncLinesModal';
 import type { ServerNode } from '../useServers';
+import { ageText, sameVersion, RunningIndex } from '@/lib/healthModel';
 
 interface DashboardViewProps {
   records: ReleaseRecord[];
@@ -28,7 +29,31 @@ interface DashboardViewProps {
   onRecordDeleted?: (id: string) => void;
   // Server registry lookup for the patch runbook.
   findServer?: (environment: string, role: string) => ServerNode | null;
+  // What the servers actually run, from uploaded status/snapshot reports.
+  running?: RunningIndex;
 }
+
+// Under a Drift Matrix cell: what the server reported running, when it
+// differs from the recorded version (or a quiet tick when it matches).
+const RunningMarker: React.FC<{ entry?: RunningIndex[string]; recorded: string | null }> = ({ entry, recorded }) => {
+  if (!entry || !entry.tag) return null;
+  const when = ageText(entry.at);
+  if (recorded && sameVersion(entry.tag, recorded)) {
+    return (
+      <div className="mt-1 text-[10px] text-emerald-500/70" title={`Server reported ${entry.container} on this version (${when})`}>
+        running ✓ · {when}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="mt-1 inline-flex items-center gap-1 rounded border border-amber-700/60 bg-amber-950/40 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+      title={`Latest server report (${when}): ${entry.container} runs ${entry.tag}${recorded ? `, but the record says ${recorded}` : ''}`}
+    >
+      server runs {entry.tag} · {when}
+    </div>
+  );
+};
 
 type EnvFilter = 'All' | 'SIT' | 'UAT' | 'Prod';
 type StatusFilter = 'All' | 'SUCCESS' | 'PENDING' | 'FAILED';
@@ -111,6 +136,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onRecordUpdated,
   onRecordDeleted,
   findServer,
+  running,
 }) => {
   const [runbookRecord, setRunbookRecord] = useState<ReleaseRecord | null>(null);
   const [showSyncLines, setShowSyncLines] = useState(false);
@@ -531,6 +557,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           diverges={row.sitDiverges}
                           onClick={() => row.sitRecord && handleEditClick(row.sitRecord)}
                         />
+                        <RunningMarker entry={running?.[`SIT::${row.server}::${row.service}`]} recorded={row.sitVersion} />
                       </td>
                       <td className="px-4 py-3.5">
                         <MatrixVersion
@@ -538,6 +565,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           diverges={row.uatDiverges}
                           onClick={() => row.uatRecord && handleEditClick(row.uatRecord)}
                         />
+                        <RunningMarker entry={running?.[`UAT::${row.server}::${row.service}`]} recorded={row.uatVersion} />
                       </td>
                       <td className="px-4 py-3.5">
                         <MatrixVersion
@@ -545,6 +573,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           diverges={row.prodDiverges}
                           onClick={() => row.prodRecord && handleEditClick(row.prodRecord)}
                         />
+                        <RunningMarker entry={running?.[`PROD::${row.server}::${row.service}`]} recorded={row.prodVersion} />
                       </td>
 
                       <td className="py-3.5 pl-4 pr-5 text-right">

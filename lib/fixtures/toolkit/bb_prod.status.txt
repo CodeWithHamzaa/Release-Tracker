@@ -1,0 +1,27 @@
+
+  Server Status
+────────────────────────────────────────────────────────────
+
+  Role           : Bot-Builder
+  Physical env   : PROD  (IP 10.0.8.117)
+  Config points  : UNDETERMINED
+  Workdir        : /srv/alara/bb_prod
+  Alara home     : /srv/alara/bb_prod/alara
+
+  .env           : NOT encrypted
+  .env_fbl       : NOT encrypted
+  .poly_env      : NOT encrypted
+  Master key     : present  (root:root 600)
+  Key state      : fingerprint beb69bb37d7f66ff — expected fingerprint not set in alara_common.sh
+
+  ── Running Containers ──────────────────────────────────────
+
+  NAME                         SERVICE              IMAGE                                      STATUS                 PORTS
+  alara-ui                     alara-ui             registry.local/alara-ui:2.1.4              Up 12 days             0.0.0.0:3000->3000/tcp
+  nginx                        nginx                nginx:1.0                                  Up 12 days             0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+  ldap-connector               ldap-connector       registry.local/ldap-connector:2.4.2        Up 12 days (healthy)   
+
+  ── Exited Containers ───────────────────────────────────────
+
+[INFO]    None.
+

@@ -1,0 +1,42 @@
+
+  ALARA Release Comparison
+──────────────────────────────────────────────────────────────────────
+  Source : bb_sit.snapshot  (role=BOT_BUILDER, env=SIT)
+  Target : bb_prod.snapshot  (role=BOT_BUILDER, env=PROD)
+
+  Container Images
+──────────────────────────────────────────────────────────────────────
+  ^  ldap-connector
+      SIT: registry.local/ldap-connector:2.4.3
+      PROD: registry.local/ldap-connector:2.4.2   <- needs image update on PROD
+  ~  Same image, different container name (registry.local/alara-ui)
+      SIT: alara-ui2  (registry.local/alara-ui:2.1.4)
+      PROD: alara-ui  (registry.local/alara-ui:2.1.4)
+
+  .env
+──────────────────────────────────────────────────────────────────────
+[OK]    No differences in .env.
+
+  .env_fbl
+──────────────────────────────────────────────────────────────────────
+  ~ JWT_SECRET (sensitive) differs between SIT and PROD
+
+  .poly_env
+──────────────────────────────────────────────────────────────────────
+[OK]    No differences in .poly_env.
+
+  Release Checklist — BOT_BUILDER: SIT -> PROD
+──────────────────────────────────────────────────────────────────────
+  2 critical action item(s), 0 expected per-env difference(s) to verify, 1 informational note(s)
+
+CRITICAL - action required before release
+  1. [IMAGE] UPDATE ldap-connector on PROD: registry.local/ldap-connector:2.4.2  ->  registry.local/ldap-connector:2.4.3
+  2. [.env_fbl] VERIFY JWT_SECRET — sensitive value differs; confirm target's own secret is intentional (do not blindly copy from source)
+
+INFO - non-blocking
+  1. [IMAGE] 'alara-ui2' on SIT and 'alara-ui' on PROD share the same image repo (registry.local/alara-ui) — likely just a naming difference, not a missing service. Verify before assuming, don't rename blindly.
+
+[WARN]  Review every CRITICAL item above before releasing SIT -> PROD.
+[WARN]  Sensitive keys are compared by hash only — a flagged 'VERIFY' item does NOT mean copy the value, it means check it's the right secret for PROD.
+[INFO]  Next steps: apply changes on PROD via alara_env_decrypt.sh --in-place, edit, then alara_env_encrypt.sh — same decrypt-swap-restore pattern as always. Do not skip alara_server.sh verify afterward.
+exit=1

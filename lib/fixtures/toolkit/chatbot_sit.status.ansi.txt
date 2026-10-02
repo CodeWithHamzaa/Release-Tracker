@@ -1,0 +1,29 @@
+
+[1m[0;36m  Server Status[0m
+────────────────────────────────────────────────────────────
+
+  Role           : [1mChatBot / NLU[0m
+  Physical env   : [0;36m[1mSIT[0m  (IP 10.42.42.250)
+  Config points  : [1mSIT[0m
+  Workdir        : /srv/alara/chatbot_sit
+  Alara home     : /srv/alara/chatbot_sit/alara
+
+  .env_fbl       : [0;31mNOT encrypted[0m
+  .env           : [0;31mNOT encrypted[0m
+  Master key     : [0;32mpresent[0m  (root:root 600)
+  Key state      : fingerprint beb69bb37d7f66ff — [1;33mexpected fingerprint not set in alara_common.sh[0m
+
+  ── Running Containers ──────────────────────────────────────
+
+  NAME                         SERVICE              IMAGE                                      STATUS                 PORTS
+  retriever_api_service        retriever_api_service registry.local/retriever_api_service:8bd276a2 Up 3 hours (healthy)   0.0.0.0:8000->8000/tcp
+  memento                      memento              registry.local/memento:v1.1.8              Up 3 hours             0.0.0.0:8100->8100/tcp
+  common-service               common-service       registry.local/common-service:1.1          Up 2 minutes (health: starting) 
+  litellm-service              litellm-service      registry.local/platform/team-ai/litellm-service-proxy-image:v1.74.0-stable-patched Restarting (1) 12 seconds ago 
+  sent-lang                    sent-lang            registry.local/sent-lang:1.2               Up 3 hours (unhealthy) 0.0.0.0:8200->8200/tcp, :::8200->8200/tcp
+
+  ── Exited Containers ───────────────────────────────────────
+
+  NAME                         SERVICE              IMAGE                                      STATUS
+  litellm-db                   litellm-db           postgres:16-alpine                         Exited (137) 2 hours ago
+

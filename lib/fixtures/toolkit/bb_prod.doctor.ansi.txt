@@ -1,0 +1,32 @@
+
+[1m[0;36m  ALARA Doctor — Preflight[0m
+────────────────────────────────────────────────────────────
+
+  Server control  : v2.6
+  Detected role   : [1mBot-Builder[0m
+  Detected env    : [1mPROD[0m  (from IP 10.0.8.117)
+  Running as      : root
+  ALARA_HOME      : /srv/alara/bb_prod/alara
+  ALARA_WORKDIR   : /srv/alara/bb_prod
+
+  [0;32mok[0m    alara_common.sh
+  [0;32mok[0m    alara_key.sh
+  [0;32mok[0m    alara_env_encrypt.sh
+  [0;32mok[0m    alara_env_decrypt.sh
+  [0;32mok[0m    alara_start.sh
+  [0;32mok[0m    alara_env_generate.sh
+  [0;32mok[0m    alara_release_snapshot.sh
+  [0;32mok[0m    alara_release_compare.sh
+  [0;32mok[0m    alara_patch.sh
+
+  [0;32mok[0m    docker-compose.yml
+  [0;32mok[0m    .env
+  [0;32mok[0m    .env_fbl
+  [0;32mok[0m    .poly_env
+  [0;32mok[0m    master.key  (root:root 600)
+        key   fingerprint beb69bb37d7f66ff — [1;33mexpected fingerprint not set in alara_common.sh[0m
+  [0;32mok[0m    openssl
+  [0;32mok[0m    docker compose
+
+
+[0;32m[OK][0m    Preflight passed.

@@ -1,0 +1,61 @@
+
+  ALARA Release Comparison
+──────────────────────────────────────────────────────────────────────
+  Source : chatbot_sit.snapshot  (role=CHAT_BOT, env=SIT)
+  Target : chatbot_uat.snapshot  (role=CHAT_BOT, env=UAT)
+
+  Container Images
+──────────────────────────────────────────────────────────────────────
+  ^  memento
+      SIT: registry.local/memento:v1.1.8
+      UAT: registry.local/memento:v1.1.7   <- needs image update on UAT
+  ^  retriever_api_service
+      SIT: registry.local/retriever_api_service:8bd276a2
+      UAT: registry.local/retriever_api_service:7aa11111   <- needs image update on UAT
+  +  litellm-db (postgres:16-alpine) runs on SIT, no matching image on UAT
+  +  litellm-service (registry.local/platform/team-ai/litellm-service-proxy-image:v1.74.0-stable-patched) runs on SIT, no matching image on UAT
+  -  debug-shell (busybox:1.36) runs on UAT, no matching image on SIT
+
+  .env
+──────────────────────────────────────────────────────────────────────
+[OK]    No differences in .env.
+
+  .env_fbl
+──────────────────────────────────────────────────────────────────────
+  + DUP_KEY exists on SIT but NOT on UAT
+  + ONLY_SIT_FLAG exists on SIT but NOT on UAT
+  - UAT_ONLY exists on UAT but NOT on SIT (target-only — confirm if intentional)
+  ~ AZURE_OPENAI_API_KEY (sensitive) differs between SIT and UAT
+  ~ AZURE_OPENAI_ENDPOINT (routinely per-environment)
+      SIT: https://example-sit.openai.azure.com
+      UAT: https://example-uat.openai.azure.com
+  ~ MONGO_URI (sensitive) differs between SIT and UAT
+  ~ TIMEOUT
+      SIT: 30
+      UAT: 60
+
+  Release Checklist — CHAT_BOT: SIT -> UAT
+──────────────────────────────────────────────────────────────────────
+  11 critical action item(s), 1 expected per-env difference(s) to verify, 0 informational note(s)
+
+CRITICAL - action required before release
+  1. [IMAGE] UPDATE memento on UAT: registry.local/memento:v1.1.7  ->  registry.local/memento:v1.1.8
+  2. [IMAGE] UPDATE retriever_api_service on UAT: registry.local/retriever_api_service:7aa11111  ->  registry.local/retriever_api_service:8bd276a2
+  3. [IMAGE] DEPLOY litellm-db (postgres:16-alpine) to UAT — running on SIT, nothing with this image found on UAT
+  4. [IMAGE] DEPLOY litellm-service (registry.local/platform/team-ai/litellm-service-proxy-image:v1.74.0-stable-patched) to UAT — running on SIT, nothing with this image found on UAT
+  5. [IMAGE] REVIEW debug-shell (busybox:1.36) — running on UAT only. Confirm this is intentional (e.g. target-only service) and not stale/leftover before releasing.
+  6. [.env_fbl] ADD DUP_KEY to UAT (value on SIT: a
+b)
+  7. [.env_fbl] ADD ONLY_SIT_FLAG to UAT (value on SIT: 1)
+  8. [.env_fbl] REVIEW UAT_ONLY — present only on UAT, confirm it should stay
+  9. [.env_fbl] VERIFY AZURE_OPENAI_API_KEY — sensitive value differs; confirm target's own secret is intentional (do not blindly copy from source)
+  10. [.env_fbl] VERIFY MONGO_URI — sensitive value differs; confirm target's own secret is intentional (do not blindly copy from source)
+  11. [.env_fbl] REVIEW TIMEOUT — SIT='30' vs UAT='60'. Confirm whether UAT should match SIT or this is an intentional per-env value before changing anything.
+
+EXPECTED - routinely per-environment, verify only
+  1. [.env_fbl] AZURE_OPENAI_ENDPOINT — SIT='https://example-sit.openai.azure.com' vs UAT='https://example-uat.openai.azure.com'. Key name matches a routinely-per-env pattern — verify it's the correct UAT value, not drift.
+
+[WARN]  Review every CRITICAL item above before releasing SIT -> UAT.
+[WARN]  Sensitive keys are compared by hash only — a flagged 'VERIFY' item does NOT mean copy the value, it means check it's the right secret for UAT.
+[INFO]  Next steps: apply changes on UAT via alara_env_decrypt.sh --in-place, edit, then alara_env_encrypt.sh — same decrypt-swap-restore pattern as always. Do not skip alara_server.sh verify afterward.
+exit=1

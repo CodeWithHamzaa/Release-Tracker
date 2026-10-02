@@ -117,3 +117,22 @@ model ConfigFileVersion {
 
   @@unique([fileId, version])
 }
+
+// Health reports: output of the ALARA toolkit carried out of the air gap
+// (.snapshot files, `alara_server.sh status` and `doctor` output). Every
+// upload is kept; the Health page shows the latest per environment + role +
+// kind. Snapshots hold no plaintext secrets (the toolkit hashes them).
+model HealthReport {
+  id          String   @id @default(uuid())
+  environment String   // SIT, UAT, Prod
+  role        String   // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  kind        String   // snapshot | status | doctor
+  reportedAt  DateTime // "# generated:" for snapshots, else upload time
+  host        String?
+  parsed      Json
+  raw         String
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+
+  @@index([environment, role, kind, reportedAt])
+}

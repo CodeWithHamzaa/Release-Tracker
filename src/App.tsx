@@ -13,6 +13,9 @@ import { useCatalog, CatalogService } from './useCatalog';
 import { useServers } from './useServers';
 import { useConfigs, useComposeIndex } from './useConfigs';
 import { ConfigsView, ConfigFocus } from './components/ConfigsView';
+import { HealthView } from './components/HealthView';
+import { useHealth } from './useHealth';
+import { runningIndex } from '@/lib/healthModel';
 
 const RECORDS_CACHE_KEY = 'enterprise_release_records_v3';
 
@@ -197,6 +200,7 @@ export default function App() {
   const registry = useServers(signedIn);
   const configs = useConfigs(signedIn);
   const composeIndex = useComposeIndex(configs);
+  const health = useHealth(signedIn);
   const [configFocus, setConfigFocus] = useState<ConfigFocus | null>(null);
 
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
@@ -310,6 +314,9 @@ export default function App() {
     if (signedIn) fetchRecords();
   }, [signedIn, userId, fetchRecords]);
 
+  // What servers actually run (latest status/snapshot), for the Drift Matrix.
+  const running = useMemo(() => runningIndex(health.reports, records), [health.reports, records]);
+
   const handleSignOut = useCallback(async () => {
     const supabase = getSupabaseClient();
     // Drop the cached records so the next person at this browser sees nothing.
@@ -412,6 +419,14 @@ export default function App() {
             composeIndex={composeIndex}
             onEditVersion={handleEditVersion}
           />
+        ) : currentPath === '/health' ? (
+          <HealthView
+            health={health}
+            records={records}
+            servers={registry.servers}
+            composeIndex={composeIndex}
+            onReloadServers={registry.reload}
+          />
         ) : currentPath === '/configs' ? (
           <ConfigsView
             configs={configs}
@@ -427,6 +442,7 @@ export default function App() {
             isLoading={isLoading}
             onRecordUpdated={handleRecordUpdated}
             onRecordDeleted={handleRecordDeleted}
+            running={running}
             findServer={registry.find}
           />
         )}

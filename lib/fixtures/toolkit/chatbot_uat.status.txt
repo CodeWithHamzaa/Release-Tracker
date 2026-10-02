@@ -1,0 +1,28 @@
+
+  Server Status
+────────────────────────────────────────────────────────────
+
+  Role           : ChatBot / NLU
+  Physical env   : UAT  (IP 10.32.32.158)
+  Config points  : UAT
+  Workdir        : /srv/alara/chatbot_uat
+  Alara home     : /srv/alara/chatbot_uat/alara
+
+  .env_fbl       : NOT encrypted
+  .env           : NOT encrypted
+  Master key     : present  (root:root 600)
+  Key state      : fingerprint beb69bb37d7f66ff — expected fingerprint not set in alara_common.sh
+
+  ── Running Containers ──────────────────────────────────────
+
+  NAME                         SERVICE              IMAGE                                      STATUS                 PORTS
+  retriever_api_service        retriever_api_service registry.local/retriever_api_service:7aa11111 Up 5 days (healthy)    0.0.0.0:8000->8000/tcp
+  memento                      memento              registry.local/memento:v1.1.7              Up 5 days              0.0.0.0:8100->8100/tcp
+  common-service               common-service       registry.local/common-service:1.1          Up 5 days (healthy)    
+  sent-lang                    sent-lang            registry.local/sent-lang:1.2               Up 5 days              0.0.0.0:8200->8200/tcp
+  debug-shell                  —                  busybox:1.36                               Up 2 days              
+
+  ── Exited Containers ───────────────────────────────────────
+
+[INFO]    None.
+
