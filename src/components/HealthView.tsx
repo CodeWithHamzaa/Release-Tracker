@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Copy,
   FileText,
+  FileTerminal,
   History,
   Loader2,
   Upload,
@@ -16,7 +17,10 @@ import { ReleaseRecord } from '@/lib/types';
 import { ageLevel, ageText, serverHealth, versionChecks, HealthReportMeta, ServerHealth } from '@/lib/healthModel';
 import { compareSnapshots, checklistText, parseIgnoreKeys, CompareResult } from '@/lib/toolkitCompare';
 import type { ParsedSnapshot } from '@/lib/toolkitParse';
+import { buildPromotion, targetTokensFrom } from '@/lib/promotionGenerator';
+import { PATCH_ID_PATTERN } from '@/lib/runbook';
 import { apiFetch, apiErrorMessage } from '../api';
+import { PromotionRunbook } from './PromotionRunbook';
 import { copyText } from '../download';
 import type { HealthApi, UploadOutcome } from '../useHealth';
 import type { ServerNode } from '../useServers';
@@ -320,13 +324,90 @@ const ServerDetail: React.FC<{
 
 // ── Release checklist (port of alara_release_compare.sh v2.1) ────────────────
 
-const ChecklistPanel: React.FC<{ reports: HealthReportMeta[] }> = ({ reports }) => {
+// ── Promotion scripts modal (lib/promotionGenerator) ────────────────────────
+
+const ROLE_SHORT: Record<string, string> = { 'Bot-Builder': 'BB', 'ChatBot / NLU': 'CHATBOT', Database: 'DB', 'Chat-Service': 'CHATSVC' };
+
+const PromotionModal: React.FC<{
+  result: CompareResult;
+  role: string;
+  sourceEnv: string;
+  targetEnv: string;
+  servers: ServerNode[];
+  onClose: () => void;
+}> = ({ result, role, sourceEnv, targetEnv, servers, onClose }) => {
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const [patchId, setPatchId] = useState(`PROMO-${ROLE_SHORT[role] ?? 'ROLE'}-${envLabel(sourceEnv)}-${envLabel(targetEnv)}-${today}`);
+  const find = (env: string) => servers.find((s) => s.environment === env && s.role === role) ?? null;
+  const plan = useMemo(
+    () =>
+      buildPromotion({
+        compare: result,
+        role,
+        patchId: patchId.trim(),
+        sourceServer: find(sourceEnv),
+        targetServer: find(targetEnv),
+        targetTokens: targetTokensFrom(servers, targetEnv),
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result, role, patchId, sourceEnv, targetEnv, servers]
+  );
+  const idOk = PATCH_ID_PATTERN.test(patchId.trim());
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 sm:p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="promotion-title"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111111] shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-zinc-800 bg-[#161618] px-6 py-4">
+          <div className="flex items-center gap-2">
+            <FileTerminal className="h-5 w-5 text-emerald-400" />
+            <div>
+              <h2 id="promotion-title" className="text-base font-bold text-white">Promotion scripts</h2>
+              <p className="text-xs text-zinc-400">
+                {role} · {envLabel(sourceEnv)} → {envLabel(targetEnv)}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <label className="block max-w-sm text-xs text-zinc-400">
+            PATCH_ID (folder name for the image tars)
+            <input
+              aria-label="Promotion PATCH_ID"
+              value={patchId}
+              onChange={(e) => setPatchId(e.target.value)}
+              className={`${inputClass} mt-1 font-mono ${idOk ? '' : 'border-amber-600'}`}
+            />
+          </label>
+          <PromotionRunbook sourceEnv={envLabel(sourceEnv)} targetEnv={envLabel(targetEnv)} plan={plan} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[] }> = ({ reports, servers }) => {
   const snapshots = reports.filter((r) => r.kind === 'snapshot');
   const [role, setRole] = useState<string>('ChatBot / NLU');
   const [source, setSource] = useState('SIT');
   const [target, setTarget] = useState('UAT');
   const [ignore, setIgnore] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showPromotion, setShowPromotion] = useState(false);
 
   const snap = (env: string) => snapshots.find((r) => r.role === role && r.environment === env);
   const src = snap(source);
@@ -410,6 +491,9 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[] }> = ({ reports }) 
             >
               <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy checklist'}
             </button>
+            <button type="button" id="btn-generate-promotion" className={primaryBtn} onClick={() => setShowPromotion(true)}>
+              <FileTerminal className="h-4 w-4" /> Generate Promotion Scripts
+            </button>
           </div>
           {result.critical.length === 0 && (
             <p className="flex items-center gap-1.5 text-xs text-emerald-300">
@@ -420,6 +504,16 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[] }> = ({ reports }) 
           {list('EXPECTED - routinely per-environment, verify only', result.expected, 'text-amber-300')}
           {list('INFO - non-blocking', result.notes, 'text-sky-300')}
         </div>
+      )}
+      {showPromotion && result && (
+        <PromotionModal
+          result={result}
+          role={role}
+          sourceEnv={source}
+          targetEnv={target}
+          servers={servers}
+          onClose={() => setShowPromotion(false)}
+        />
       )}
     </section>
   );
@@ -685,7 +779,7 @@ export const HealthView: React.FC<{
         />
       )}
 
-      <ChecklistPanel reports={health.reports} />
+      <ChecklistPanel reports={health.reports} servers={servers} />
       <ToolkitPanel reports={health.reports} servers={servers} onReloadServers={onReloadServers} />
     </div>
   );

@@ -186,6 +186,33 @@ export function runbookMarkdown(input: RunbookInput): string {
   return lines.join('\n');
 }
 
+// Shared by every generated script (patch runbook, promotion export/import):
+// variables + die() + the environment guard. Refuses to run unless this host
+// has the registry IP for the intended server and, when known, the account
+// matches. Ends with a newline.
+export function scriptGuard(server: RunbookServer, where: string, noun = 'script'): string {
+  return `EXPECTED_IP=${shellQuote(server.ip || '')}
+EXPECTED_USER=${shellQuote(server.runAs || '')}
+COMPOSE_DIR=${shellQuote(server.composePath || '')}
+
+die() { echo "REFUSED: $*" >&2; exit 2; }
+
+# 1. Environment guard: this file only runs on the server it was made for.
+HOST_IPS="$( (hostname -I 2>/dev/null || ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1) | tr ' ' '\\n')"
+grep -qxF "$EXPECTED_IP" <<<"$HOST_IPS" || die "this ${noun} is for $EXPECTED_IP (${where}); this host has: $(echo $HOST_IPS)"
+if [ -n "$EXPECTED_USER" ] && [ "$(id -un)" != "$EXPECTED_USER" ]; then
+  die "run as $EXPECTED_USER (you are $(id -un))"
+fi
+`;
+}
+
+// cd into the compose folder (when known) and check the toolkit is there.
+export function composeChecks(): string {
+  return `if [ -n "$COMPOSE_DIR" ]; then cd "$COMPOSE_DIR"; fi
+[ -f docker-compose.yml ] || die "no docker-compose.yml in $(pwd); cd to the compose folder or set it in the tracker"
+[ -x ./alara_server.sh ] || die "./alara_server.sh not found or not executable in $(pwd)"`;
+}
+
 // A bash wrapper that only proceeds on the intended server, then hands over
 // to alara_server.sh. Requires a known IP: without one it cannot guard.
 export function runbookScript(input: RunbookInput): string {
@@ -207,23 +234,9 @@ set -euo pipefail
 trap 'echo "ABORTED at line $LINENO. Nothing after this point ran." >&2' ERR
 
 PATCH_ID=${shellQuote(input.patchId)}
-EXPECTED_IP=${shellQuote(s.ip)}
-EXPECTED_USER=${shellQuote(s.runAs || '')}
-COMPOSE_DIR=${shellQuote(s.composePath || '')}
-
-die() { echo "REFUSED: $*" >&2; exit 2; }
-
-# 1. Environment guard: this file only runs on the server it was made for.
-HOST_IPS="$( (hostname -I 2>/dev/null || ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1) | tr ' ' '\\n')"
-grep -qxF "$EXPECTED_IP" <<<"$HOST_IPS" || die "this runbook is for $EXPECTED_IP (${indexEnv(input.environment)} / ${input.role}); this host has: $(echo $HOST_IPS)"
-if [ -n "$EXPECTED_USER" ] && [ "$(id -un)" != "$EXPECTED_USER" ]; then
-  die "run as $EXPECTED_USER (you are $(id -un))"
-fi
-
+${scriptGuard(s, `${indexEnv(input.environment)} / ${input.role}`, 'runbook')}
 # 2. Compose folder, toolkit and tars present.
-if [ -n "$COMPOSE_DIR" ]; then cd "$COMPOSE_DIR"; fi
-[ -f docker-compose.yml ] || die "no docker-compose.yml in $(pwd); cd to the compose folder or set it in the tracker"
-[ -x ./alara_server.sh ] || die "./alara_server.sh not found or not executable in $(pwd)"
+${composeChecks()}
 [ -d "alara/patches/incoming/$PATCH_ID" ] || die "copy the tars to alara/patches/incoming/$PATCH_ID/ first"
 
 # 3. Toolkit health, then a preview that changes nothing.
