@@ -86,3 +86,34 @@ model ServerNode {
 
   @@unique([environment, role])
 }
+
+// Config vault: copies of each server's docker-compose and env files, per
+// environment + role. Every save is a new version; nothing is overwritten.
+// Contents are stored as uploaded (including any plaintext secrets), so the
+// tables have RLS on with no policies and are reachable only via the API.
+model ConfigFile {
+  id          String              @id @default(uuid())
+  environment String              // SIT, UAT, Prod
+  role        String              // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  path        String              // docker-compose.yml, .env, .env_fbl, .poly_env, ...
+  versions    ConfigFileVersion[]
+  createdAt   DateTime            @default(now())
+
+  @@unique([environment, role, path])
+}
+
+model ConfigFileVersion {
+  id        String     @id @default(uuid())
+  fileId    String
+  file      ConfigFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  version   Int
+  content   String
+  sha256    String
+  sizeBytes Int
+  source    String     // upload | edit
+  note      String?
+  createdBy String     // email of the signed-in user
+  createdAt DateTime   @default(now())
+
+  @@unique([fileId, version])
+}

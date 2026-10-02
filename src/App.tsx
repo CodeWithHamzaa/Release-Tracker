@@ -11,6 +11,8 @@ import { getSupabaseClient } from '@/lib/supabase';
 import { apiFetch, apiErrorMessage } from './api';
 import { useCatalog, CatalogService } from './useCatalog';
 import { useServers } from './useServers';
+import { useConfigs, useComposeIndex } from './useConfigs';
+import { ConfigsView, ConfigFocus } from './components/ConfigsView';
 
 const RECORDS_CACHE_KEY = 'enterprise_release_records_v3';
 
@@ -193,6 +195,9 @@ export default function App() {
 
   const catalog = useCatalog(signedIn);
   const registry = useServers(signedIn);
+  const configs = useConfigs(signedIn);
+  const composeIndex = useComposeIndex(configs);
+  const [configFocus, setConfigFocus] = useState<ConfigFocus | null>(null);
 
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -333,6 +338,20 @@ export default function App() {
     setCurrentPath('/');
   }, []);
 
+  // Records created elsewhere (config vault "log as release records"):
+  // merge them in without leaving the current page.
+  const handleRecordsLogged = useCallback((created: ReleaseRecord[]) => {
+    const ids = new Set(created.map((r) => r.id));
+    setRecords((prev) => [...created, ...prev.filter((r) => !ids.has(r.id))]);
+  }, []);
+
+  const handleEditVersion = useCallback((_env: string, _role: string, fileId: string, image: string | null) => {
+    setConfigFocus({ fileId, editAt: image ?? undefined });
+    setCurrentPath('/configs');
+  }, []);
+
+  const clearConfigFocus = useCallback(() => setConfigFocus(null), []);
+
   const handleRecordDeleted = useCallback((id: string) => {
     setRecords((prev) => prev.filter((r) => r.id !== id));
   }, []);
@@ -390,6 +409,17 @@ export default function App() {
             servers={registry.servers}
             serversWarning={registry.warning}
             onReloadServers={registry.reload}
+            composeIndex={composeIndex}
+            onEditVersion={handleEditVersion}
+          />
+        ) : currentPath === '/configs' ? (
+          <ConfigsView
+            configs={configs}
+            servers={registry.servers}
+            catalogServices={catalogServices}
+            focus={configFocus}
+            onFocusHandled={clearConfigFocus}
+            onRecordsLogged={handleRecordsLogged}
           />
         ) : (
           <DashboardView

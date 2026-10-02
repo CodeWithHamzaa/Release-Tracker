@@ -17,6 +17,8 @@ import { apiFetch, apiErrorMessage } from '../api';
 import type { CatalogService } from '../useCatalog';
 import type { ServerNode } from '../useServers';
 import { ServersPanel } from './ServersPanel';
+import { versionOf } from '@/lib/configDrift';
+import type { ComposeIndex } from '../useConfigs';
 
 interface CatalogViewProps {
   services: CatalogService[];
@@ -27,6 +29,9 @@ interface CatalogViewProps {
   servers: ServerNode[];
   serversWarning: string | null;
   onReloadServers: () => Promise<void> | void;
+  // Per-environment versions from the config vault's compose files.
+  composeIndex?: ComposeIndex;
+  onEditVersion?: (environment: string, role: string, fileId: string, image: string | null) => void;
 }
 
 const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
@@ -397,6 +402,54 @@ const ComposeImport: React.FC<{
 
 // ── Catalog page ────────────────────────────────────────────────────────────
 
+// "SIT 2.4.2 · UAT 2.4.2 · PROD 2.4.1" from the latest stored compose file of
+// each environment (config vault). Click a version to edit that compose file
+// at the service's image line; mismatched versions are highlighted.
+const VersionChips: React.FC<{
+  service: CatalogService;
+  composeIndex: ComposeIndex;
+  onEditVersion?: CatalogViewProps['onEditVersion'];
+}> = ({ service, composeIndex, onEditVersion }) => {
+  const byEnv = composeIndex[service.server];
+  if (!byEnv) return null;
+  const cells = ENVIRONMENTS.map((env) => {
+    const entry = byEnv[env];
+    const summary = entry ? versionOf(entry.summaries, service.name) : null;
+    return { env, entry, summary };
+  });
+  if (!cells.some((c) => c.summary)) return null;
+  const tags = cells.filter((c) => c.entry).map((c) => c.summary?.tag ?? null);
+  const drift = tags.some((t) => t !== tags[0]);
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1" aria-label={`${service.name} versions`}>
+      {cells.map(({ env, entry, summary }) => {
+        const label = `${env.toUpperCase()} ${entry ? summary?.tag ?? 'not in compose' : 'no file'}`;
+        const style = !entry
+          ? 'border-dashed border-zinc-800 text-zinc-600'
+          : drift
+          ? 'border-amber-700 bg-amber-950/40 text-amber-300'
+          : 'border-emerald-900 bg-emerald-950/30 text-emerald-300';
+        return entry && onEditVersion ? (
+          <button
+            key={env}
+            type="button"
+            title={summary ? `${summary.image}\nClick to edit this version in the ${env} compose file` : `Not found in the ${env} compose file`}
+            onClick={() => onEditVersion(env, service.server, entry.fileId, summary?.image ?? null)}
+            className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] hover:brightness-125 ${style}`}
+          >
+            {label}
+          </button>
+        ) : (
+          <span key={env} className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${style}`}>
+            {label}
+          </span>
+        );
+      })}
+      {drift && <span className="text-[10px] text-amber-400">version drift</span>}
+    </div>
+  );
+};
+
 export const CatalogView: React.FC<CatalogViewProps> = ({
   services,
   editable,
@@ -406,6 +459,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   servers,
   serversWarning,
   onReloadServers,
+  composeIndex = {},
+  onEditVersion,
 }) => {
   const [newGroup, setNewGroup] = useState('');
   const [newName, setNewName] = useState('');
@@ -560,6 +615,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     <div className="min-w-0">
                       <div className="font-mono text-sm text-zinc-200">{s.name}</div>
                       {s.image && <div className="truncate font-mono text-[11px] text-zinc-500">{s.image}</div>}
+                      <VersionChips service={s} composeIndex={composeIndex} onEditVersion={onEditVersion} />
                       {s.ports.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {s.ports.map((p) => (

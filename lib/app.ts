@@ -230,7 +230,7 @@ router.get('/health', async (req: Request, res: Response) => {
 // path, not router-wide: this router is also mounted at the root (see the
 // bottom of the file), where a blanket guard would 401 the SPA's own pages
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
-router.use(['/records', '/catalog', '/servers'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs'], requireAuth);
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
@@ -791,6 +791,160 @@ router.patch('/servers/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Not Found', message: 'Server not found.' });
     }
     return sendDbError(res, err, 'update the server');
+  }
+});
+
+// ── Config vault ───────────────────────────────────────────────────────────
+// Copies of each server's docker-compose / env files per environment + role,
+// with every save kept as a new version. Contents are stored exactly as sent
+// and are never logged.
+
+const CONFIG_MAX_BYTES = 1_000_000;
+const CONFIG_PATH = /^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,99}$/; // a plain file name, no folders
+const VERSION_META = {
+  id: true,
+  version: true,
+  sha256: true,
+  sizeBytes: true,
+  source: true,
+  note: true,
+  createdBy: true,
+  createdAt: true,
+} as const;
+
+router.get('/configs', async (req: Request, res: Response) => {
+  try {
+    const prisma = await getPrismaClient();
+    if (!prisma) return res.json({ success: true, dataSource: 'memory', files: [] });
+    const files = await prisma.configFile.findMany({
+      orderBy: [{ role: 'asc' }, { path: 'asc' }],
+      include: {
+        versions: { orderBy: { version: 'desc' }, take: 1, select: VERSION_META },
+        _count: { select: { versions: true } },
+      },
+    });
+    res.json({
+      success: true,
+      dataSource: 'database',
+      files: files.map((f: any) => ({
+        id: f.id,
+        environment: f.environment,
+        role: f.role,
+        path: f.path,
+        latest: f.versions[0] ?? null,
+        versionCount: f._count.versions,
+      })),
+    });
+  } catch (err) {
+    return sendDbError(res, err, 'load the config files');
+  }
+});
+
+router.get('/configs/:fileId/versions', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const versions = await prisma.configFileVersion.findMany({
+      where: { fileId: req.params.fileId },
+      orderBy: { version: 'desc' },
+      select: VERSION_META,
+    });
+    res.json({ success: true, versions });
+  } catch (err) {
+    return sendDbError(res, err, 'load the version history');
+  }
+});
+
+router.get('/configs/versions/:id', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const version = await prisma.configFileVersion.findUnique({
+      where: { id: req.params.id },
+      include: { file: { select: { id: true, environment: true, role: true, path: true } } },
+    });
+    if (!version) return res.status(404).json({ error: 'Not Found', message: 'Version not found.' });
+    res.json({ success: true, version });
+  } catch (err) {
+    return sendDbError(res, err, 'load the file');
+  }
+});
+
+router.post('/configs', async (req: Request, res: Response) => {
+  const environment = cleanLabel(req.body?.environment);
+  const role = cleanLabel(req.body?.role);
+  const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+  const content = req.body?.content;
+  const source = req.body?.source === 'edit' ? 'edit' : 'upload';
+  const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim().slice(0, 500) : null;
+
+  if (!environment || !CATALOG_ENVIRONMENTS.includes(environment)) {
+    return res.status(400).json({ error: 'Bad Request', message: `environment must be one of ${CATALOG_ENVIRONMENTS.join(', ')}.` });
+  }
+  if (!role) return res.status(400).json({ error: 'Bad Request', message: 'role is required.' });
+  if (!CONFIG_PATH.test(path)) {
+    return res.status(400).json({ error: 'Bad Request', message: 'File name must be a plain name like docker-compose.yml or .env_fbl (no folders).' });
+  }
+  if (typeof content !== 'string') return res.status(400).json({ error: 'Bad Request', message: 'content must be text.' });
+  const sizeBytes = Buffer.byteLength(content, 'utf8');
+  if (sizeBytes > CONFIG_MAX_BYTES) {
+    return res.status(413).json({ error: 'Payload Too Large', message: 'Config files are limited to 1 MB.' });
+  }
+  if (content.includes('\u0000')) {
+    return res.status(400).json({ error: 'Bad Request', message: 'That looks like a binary file, not a text config.' });
+  }
+  const sha256 = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
+  const createdBy = req.user?.email || 'local-dev';
+
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const result = await prisma.$transaction(async (tx: any) => {
+      const file = await tx.configFile.upsert({
+        where: { environment_role_path: { environment, role, path } },
+        create: { environment, role, path },
+        update: {},
+      });
+      const latest = await tx.configFileVersion.findFirst({
+        where: { fileId: file.id },
+        orderBy: { version: 'desc' },
+        select: { ...VERSION_META, content: true },
+      });
+      if (latest && latest.sha256 === sha256) {
+        const { content: _c, ...meta } = latest;
+        return { file, version: meta, unchanged: true, previousContent: null };
+      }
+      const version = await tx.configFileVersion.create({
+        data: { fileId: file.id, version: (latest?.version ?? 0) + 1, content, sha256, sizeBytes, source, note, createdBy },
+        select: VERSION_META,
+      });
+      return { file, version, unchanged: false, previousContent: latest?.content ?? null };
+    });
+    res.status(result.unchanged ? 200 : 201).json({
+      success: true,
+      unchanged: result.unchanged,
+      file: { id: result.file.id, environment, role, path },
+      version: result.version,
+      // Lets the client list image-tag changes without a second request.
+      previousContent: result.previousContent,
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return res.status(409).json({ error: 'Conflict', message: 'Someone saved this file at the same moment. Reload and try again.' });
+    }
+    return sendDbError(res, err, 'save the config file');
+  }
+});
+
+router.delete('/configs/:fileId', async (req: Request, res: Response) => {
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    await prisma.configFile.delete({ where: { id: req.params.fileId } });
+    res.json({ success: true });
+  } catch (err) {
+    if (isRecordNotFound(err)) return res.status(404).json({ error: 'Not Found', message: 'File not found.' });
+    return sendDbError(res, err, 'delete the config file');
   }
 });
 
