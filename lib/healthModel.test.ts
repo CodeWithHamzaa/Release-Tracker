@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseToolkitOutput } from './toolkitParse.js';
 import { ageLevel, ageText, containerFor, runningIndex, sameVersion, serverHealth, versionChecks, HealthReportMeta } from './healthModel.js';
 import { summarizeCompose } from './configDrift.js';
+import { parseReceipt } from './receiptParse.js';
 import type { ReleaseRecord } from './types.js';
 
 const FX = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'toolkit');
@@ -77,4 +78,28 @@ test('runningIndex keys by ENV::role::service for the Drift Matrix', () => {
   );
   assert.deepEqual(Object.keys(idx), ['PROD::Bot-Builder::ldap-connector']);
   assert.equal(idx['PROD::Bot-Builder::ldap-connector'].tag, '2.4.2');
+});
+
+// A deployment receipt's state.after is the newest word on what a server runs.
+const RX = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'receipts');
+const receiptReport = (file: string, reportedAt: string): HealthReportMeta => {
+  const parsed = parseReceipt(readFileSync(join(RX, file), 'utf8'));
+  return { id: file, environment: parsed.environment, role: parsed.role, kind: 'receipt', reportedAt, host: parsed.host, uploadedBy: 'x', createdAt: reportedAt, parsed };
+};
+
+test('serverHealth: a receipt newer than the status supplies the containers; an older one does not', () => {
+  const status = report('chatbot_sit.status.txt', '2026-10-02T10:00:00Z');
+  const newer = serverHealth([status, receiptReport('success.json', '2026-10-03T10:00:00Z')]);
+  assert.equal(newer.containersFrom, 'receipt');
+  assert.deepEqual(newer.containers.map((c) => [c.service, c.image]), [['memento', 'memento:v1.1.9'], ['retriever', 'retriever:v2.0.1']]);
+  assert.deepEqual(newer.counts, { total: 2, up: 2, unhealthy: 0, starting: 0, restarting: 0, exited: 0 });
+  assert.equal(newer.newestAt, '2026-10-03T10:00:00Z');
+  assert.equal(serverHealth([status, receiptReport('success.json', '2026-10-01T10:00:00Z')]).containersFrom, 'status');
+  // A receipt without a toolkit record has no state.after and never replaces real data.
+  assert.equal(serverHealth([status, receiptReport('refused.json', '2026-10-04T10:00:00Z')]).containersFrom, 'status');
+});
+
+test('runningIndex: after a receipt the Drift Matrix sees the new version running', () => {
+  const idx = runningIndex([receiptReport('success.json', '2026-10-03T10:00:00Z')], [rec({ service: 'memento' })]);
+  assert.equal(idx['SIT::ChatBot / NLU::memento'].tag, 'v1.1.9');
 });

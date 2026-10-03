@@ -5,18 +5,23 @@
 
 import type { ParsedDoctor, ParsedSnapshot, ParsedStatus, ToolkitContainer, ToolkitKind } from './toolkitParse.js';
 import { imageRepo, imageTag, versionOf, ComposeServiceSummary } from './configDrift.js';
+import type { ParsedReceipt } from './receiptParse.js';
 import type { ReleaseRecord } from './types.js';
+
+// A deployment receipt's state.after is the newest word on what a server runs
+// right after a patch, so it feeds the board and the Drift Matrix like a status.
+export type HealthKind = ToolkitKind | 'receipt';
 
 export interface HealthReportMeta {
   id: string;
   environment: string;
   role: string;
-  kind: ToolkitKind;
+  kind: HealthKind;
   reportedAt: string;
   host: string | null;
   uploadedBy: string;
   createdAt: string;
-  parsed: ParsedSnapshot | ParsedStatus | ParsedDoctor;
+  parsed: ParsedSnapshot | ParsedStatus | ParsedDoctor | ParsedReceipt;
 }
 
 export type AgeLevel = 'fresh' | 'stale' | 'old';
@@ -36,7 +41,7 @@ export function ageText(iso: string, now: Date = new Date()): string {
 
 export interface ServerHealth {
   containers: ToolkitContainer[];
-  containersFrom: 'status' | 'snapshot' | null;
+  containersFrom: 'status' | 'snapshot' | 'receipt' | null;
   counts: { total: number; up: number; unhealthy: number; starting: number; restarting: number; exited: number };
   envFiles: ParsedStatus['envFiles'];
   masterKey: ParsedStatus['masterKey'];
@@ -46,11 +51,11 @@ export interface ServerHealth {
   doctorPassed: boolean | null;
   doctorProblems: string[];
   newestAt: string | null;
-  reports: Partial<Record<ToolkitKind, HealthReportMeta>>;
+  reports: Partial<Record<HealthKind, HealthReportMeta>>;
 }
 
 export function serverHealth(reports: HealthReportMeta[]): ServerHealth {
-  const byKind: Partial<Record<ToolkitKind, HealthReportMeta>> = {};
+  const byKind: Partial<Record<HealthKind, HealthReportMeta>> = {};
   for (const r of reports) {
     const cur = byKind[r.kind];
     if (!cur || r.reportedAt > cur.reportedAt) byKind[r.kind] = r;
@@ -58,12 +63,18 @@ export function serverHealth(reports: HealthReportMeta[]): ServerHealth {
   const status = byKind.status?.parsed as ParsedStatus | undefined;
   const snapshot = byKind.snapshot?.parsed as ParsedSnapshot | undefined;
   const doctor = byKind.doctor?.parsed as ParsedDoctor | undefined;
+  const receipt = byKind.receipt?.parsed as ParsedReceipt | undefined;
 
-  // Containers from whichever of status / snapshot is newer.
-  let containersFrom: ServerHealth['containersFrom'] = null;
-  if (byKind.status && (!byKind.snapshot || byKind.status.reportedAt >= byKind.snapshot.reportedAt)) containersFrom = 'status';
-  else if (byKind.snapshot) containersFrom = 'snapshot';
-  const containers = containersFrom === 'status' ? status!.containers : containersFrom === 'snapshot' ? snapshot!.containers : [];
+  // Containers from whichever of status / snapshot / receipt is newest. A
+  // receipt only counts when the toolkit recorded a run (it has state.after).
+  const sources: { kind: 'status' | 'snapshot' | 'receipt'; at: string; containers: ToolkitContainer[] }[] = [];
+  if (byKind.status && status) sources.push({ kind: 'status', at: byKind.status.reportedAt, containers: status.containers });
+  if (byKind.snapshot && snapshot) sources.push({ kind: 'snapshot', at: byKind.snapshot.reportedAt, containers: snapshot.containers });
+  if (byKind.receipt && receipt && receipt.containers.length > 0) sources.push({ kind: 'receipt', at: byKind.receipt.reportedAt, containers: receipt.containers });
+  // Ties keep the order above: status, then snapshot, then receipt.
+  const newest = sources.reduce<(typeof sources)[number] | null>((best, c) => (!best || c.at > best.at ? c : best), null);
+  const containersFrom: ServerHealth['containersFrom'] = newest?.kind ?? null;
+  const containers = newest?.containers ?? [];
 
   const counts = {
     total: containers.length,

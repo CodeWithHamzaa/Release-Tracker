@@ -15,6 +15,10 @@ import { findPortConflicts, PortBinding } from './compose.js';
 import { parseRecordDate } from './recordDate.js';
 import { validateNote } from './releaseNote.js';
 import { parseToolkitOutput } from './toolkitParse.js';
+import { parseReceipt, looksLikeReceipt, RECEIPT_MAX_BYTES } from './receiptParse.js';
+import { matchReceipt, receiptNote } from './receiptMatch.js';
+import { imageTag } from './configDrift.js';
+import { DEFAULT_DEVELOPER } from './developers.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -232,7 +236,7 @@ router.get('/health', async (req: Request, res: Response) => {
 // path, not router-wide: this router is also mounted at the root (see the
 // bottom of the file), where a blanket guard would 401 the SPA's own pages
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
-router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts'], requireAuth);
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
@@ -1034,6 +1038,9 @@ router.post('/health-reports', async (req: Request, res: Response) => {
   if (Buffer.byteLength(text, 'utf8') > HEALTH_MAX_BYTES) {
     return res.status(413).json({ error: 'Payload Too Large', message: 'Reports are limited to 1 MB.' });
   }
+  if (looksLikeReceipt(text)) {
+    return res.status(400).json({ error: 'Bad Request', message: 'This is a deployment receipt. Upload it as a receipt so it can close the matching release records.' });
+  }
   let parsed;
   try {
     parsed = parseToolkitOutput(text);
@@ -1080,6 +1087,146 @@ router.delete('/health-reports/:id', async (req: Request, res: Response) => {
   } catch (err) {
     if (isRecordNotFound(err)) return res.status(404).json({ error: 'Not Found', message: 'Report not found.' });
     return sendDbError(res, err, 'delete the report');
+  }
+});
+
+// ── Deployment receipts ─────────────────────────────────────────────────────
+// A receipt is the small JSON file a generated script writes after
+// `alara_server.sh patch apply` (see lib/receiptParse.ts). Uploading it:
+//   preview: true  -> parse + match only, nothing is written
+//   otherwise      -> store it (a HealthReport of kind "receipt", so its
+//                     state.after also feeds the Health board and the Drift
+//                     Matrix), set the matching PENDING records' status from the
+//                     toolkit's RESULT, and optionally create records for applied
+//                     images nobody had logged.
+// The status is always derived here from the receipt's own content; the client
+// only chooses WHICH of the server-found matches to apply.
+
+const RECEIPT_RECORD_FIELDS = { id: true, environment: true, server: true, service: true, version: true, status: true, note: true } as const;
+
+async function receiptCandidates(prisma: any, role: string) {
+  return prisma.releaseRecord.findMany({ where: { server: role }, orderBy: { createdAt: 'desc' }, take: 2000, select: RECEIPT_RECORD_FIELDS });
+}
+
+router.post('/receipts', async (req: Request, res: Response) => {
+  const text = req.body?.text;
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Upload the receipt file (alara/receipts/*.json) as text.' });
+  }
+  if (Buffer.byteLength(text, 'utf8') > RECEIPT_MAX_BYTES) {
+    return res.status(413).json({ error: 'Payload Too Large', message: 'Receipts are limited to 1 MB.' });
+  }
+  let receipt;
+  try {
+    receipt = parseReceipt(text);
+  } catch (err) {
+    return res.status(400).json({ error: 'Bad Request', message: (err as Error).message });
+  }
+  const preview = req.body?.preview === true;
+  const pickIds = Array.isArray(req.body?.recordIds) ? new Set<string>(req.body.recordIds.filter((x: unknown) => typeof x === 'string')) : null;
+  const createServices = Array.isArray(req.body?.createServices) ? new Set<string>(req.body.createServices.filter((x: unknown) => typeof x === 'string')) : new Set<string>();
+
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const existing = await prisma.healthReport.findFirst({
+      where: { environment: receipt.environment, role: receipt.role, kind: 'receipt', raw: text },
+      select: { id: true, createdAt: true, uploadedBy: true },
+    });
+    const found = matchReceipt(receipt, await receiptCandidates(prisma, receipt.role));
+    const summary = {
+      receipt: { ...receipt, composeDiff: undefined, containers: receipt.containers.length },
+      duplicate: existing ? { id: existing.id, uploadedBy: existing.uploadedBy, createdAt: existing.createdAt } : null,
+      matches: found.matches.map((m) => ({
+        recordId: m.record.id,
+        service: m.record.service,
+        version: m.record.version,
+        via: m.via,
+        currentStatus: String(m.record.status).toUpperCase(),
+        newStatus: m.newStatus,
+      })),
+      unmatchedImages: found.unmatchedImages.map((i) => ({ service: i.service, ref: i.newRef, version: imageTag(i.newRef) })),
+      canCreate: receipt.verdict !== 'pending',
+    };
+    if (preview) return res.json({ success: true, preview: true, ...summary });
+    if (existing) return res.json({ success: true, unchanged: true, ...summary, updated: [], created: [] });
+
+    // Apply: only matches the server found itself, optionally narrowed by the client.
+    const chosen = found.matches.filter((m) => !pickIds || pickIds.has(m.record.id));
+    const status = receipt.verdict === 'success' ? 'SUCCESS' : receipt.verdict === 'failed' ? 'FAILED' : null;
+    const line = receiptNote(receipt);
+    const toCreate = status ? found.unmatchedImages.filter((i) => createServices.has(i.service)) : [];
+    const who = req.user?.email || 'local-dev';
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      const updated: any[] = [];
+      for (const m of chosen) {
+        const note = m.record.note ? `${m.record.note}\n${line}` : line;
+        updated.push(
+          await tx.releaseRecord.update({
+            where: { id: m.record.id },
+            data: { ...(m.newStatus ? { status: m.newStatus } : {}), note, updatedAt: new Date() },
+          })
+        );
+      }
+      const created: any[] = [];
+      for (const img of toCreate) {
+        created.push(
+          await tx.releaseRecord.create({
+            data: {
+              environment: receipt.environment,
+              server: receipt.role,
+              service: img.service,
+              version: imageTag(img.newRef) ?? img.newRef,
+              developerName: DEFAULT_DEVELOPER,
+              status,
+              isBuildUpdate: true,
+              note: `Logged from a deployment receipt (${receipt.patchId}).\n${line}`,
+              source: 'Receipt',
+              added_by: who,
+              createdAt: new Date(receipt.finishedAt),
+            },
+          })
+        );
+      }
+      const linked = [...updated, ...created].map((r) => r.id);
+      const report = await tx.healthReport.create({
+        data: {
+          environment: receipt.environment,
+          role: receipt.role,
+          kind: 'receipt',
+          reportedAt: new Date(receipt.finishedAt),
+          host: receipt.host,
+          parsed: { ...receipt, linkedRecordIds: linked } as any,
+          raw: text,
+          uploadedBy: who,
+        },
+        select: { id: true },
+      });
+      return { updated, created, receiptId: report.id };
+    });
+    res.status(201).json({ success: true, unchanged: false, ...summary, ...result });
+  } catch (err) {
+    return sendDbError(res, err, 'save the receipt');
+  }
+});
+
+// Receipts linked to one release record (shown on its Audit Log card).
+router.get('/receipts', async (req: Request, res: Response) => {
+  const recordId = typeof req.query.recordId === 'string' ? req.query.recordId : '';
+  if (!recordId) return res.status(400).json({ error: 'Bad Request', message: 'recordId is required.' });
+  try {
+    const prisma = await getPrismaClient();
+    if (!prisma) return res.json({ success: true, receipts: [] });
+    const receipts = await prisma.healthReport.findMany({
+      where: { kind: 'receipt', parsed: { path: ['linkedRecordIds'], array_contains: [recordId] } },
+      orderBy: { reportedAt: 'desc' },
+      take: 5,
+      select: { id: true, reportedAt: true, host: true, uploadedBy: true, parsed: true },
+    });
+    res.json({ success: true, receipts });
+  } catch (err) {
+    return sendDbError(res, err, 'load receipts');
   }
 });
 

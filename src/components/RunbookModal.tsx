@@ -81,7 +81,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
   };
   const rb = buildRunbook(input);
   const idOk = PATCH_ID_PATTERN.test(input.patchId);
-  const canScript = idOk && !!server?.ip && input.services.length > 0;
+  const canScript = idOk && input.services.length > 0;
   const fileBase = `runbook_${input.patchId || 'PATCH'}_${indexEnv(record.environment)}_${indexRole(record.server).replace(/[^\w-]/g, '')}`;
 
   return (
@@ -100,7 +100,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
               <h2 id="runbook-title" className="text-base font-bold text-white">Patch runbook</h2>
               <p className="text-xs text-zinc-300">
                 {indexEnv(record.environment)} / {record.server}
-                {server?.ip ? ` · ${server.ip}` : ' · IP unknown'}
+                {server?.ip ? ` · ${server.ip}` : ''}
                 {server?.runAs ? ` · as ${server.runAs}` : ''}
               </p>
             </div>
@@ -203,7 +203,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
             type="button"
             className={buttonClass}
             disabled={!canScript}
-            title={canScript ? 'Guarded script: refuses to run on any other server' : 'Needs a valid PATCH_ID, a server IP and at least one image'}
+            title={canScript ? `Guarded script: run with --env ${indexEnv(record.environment)} (add --dry-run first). The toolkit confirms which server it is on.` : 'Needs a valid PATCH_ID and at least one image'}
             onClick={() => downloadText(`${fileBase}.sh`, runbookScript(input), 'text/x-shellscript')}
           >
             <Download className="h-3.5 w-3.5" /> .sh

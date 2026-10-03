@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
-  Boxes,
+  Network,
   CheckCircle2,
   FileCode2,
   Loader2,
@@ -17,10 +17,11 @@ import { apiFetch, apiErrorMessage } from '../api';
 import type { CatalogService } from '../useCatalog';
 import type { ServerNode } from '../useServers';
 import { ServersPanel } from './ServersPanel';
-import { versionOf } from '@/lib/configDrift';
-import type { ComposeIndex } from '../useConfigs';
+import { PortMapPanel } from './PortMapPanel';
+import { CommonSyncPanel } from './CommonSyncPanel';
+import { ToolkitRolloutPanel } from './ToolkitRolloutPanel';
 
-interface CatalogViewProps {
+interface InfrastructureViewProps {
   services: CatalogService[];
   editable: boolean; // false when the catalog comes from the config fallback
   warning: string | null;
@@ -29,9 +30,6 @@ interface CatalogViewProps {
   servers: ServerNode[];
   serversWarning: string | null;
   onReloadServers: () => Promise<void> | void;
-  // Per-environment versions from the config vault's compose files.
-  composeIndex?: ComposeIndex;
-  onEditVersion?: (environment: string, role: string, fileId: string, image: string | null) => void;
 }
 
 const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
@@ -188,7 +186,7 @@ const ComposeImport: React.FC<{
       const shared = Array.isArray(data.warnings) ? data.warnings.length : 0;
       setSaved(
         `Saved ${data.services} service(s) and ${data.ports} port(s) for ${environment} / ${host.trim()}` +
-          (data.created?.length ? `. New in catalog: ${data.created.join(', ')}` : '') +
+          (data.created?.length ? `. New services: ${data.created.join(', ')}` : '') +
           (shared ? `. ${shared} shared host port(s) saved with a warning.` : '.')
       );
       setParsed(null);
@@ -339,7 +337,7 @@ const ComposeImport: React.FC<{
                     <td className="px-3 py-2">
                       <div className="font-mono text-white">{row.name}</div>
                       <span className={`text-[10px] ${row.inCatalog ? 'text-zinc-400' : 'text-sky-400'}`}>
-                        {row.inCatalog ? 'in catalog' : 'new'}
+                        {row.inCatalog ? 'known' : 'new'}
                       </span>
                     </td>
                     <td className="px-3 py-2 min-w-[150px]">
@@ -400,57 +398,12 @@ const ComposeImport: React.FC<{
   );
 };
 
-// ── Catalog page ────────────────────────────────────────────────────────────
+// ── Infrastructure page ─────────────────────────────────────────────────────
 
-// "SIT 2.4.2 · UAT 2.4.2 · PROD 2.4.1" from the latest stored compose file of
-// each environment (config vault). Click a version to edit that compose file
-// at the service's image line; mismatched versions are highlighted.
-const VersionChips: React.FC<{
-  service: CatalogService;
-  composeIndex: ComposeIndex;
-  onEditVersion?: CatalogViewProps['onEditVersion'];
-}> = ({ service, composeIndex, onEditVersion }) => {
-  const byEnv = composeIndex[service.server];
-  if (!byEnv) return null;
-  const cells = ENVIRONMENTS.map((env) => {
-    const entry = byEnv[env];
-    const summary = entry ? versionOf(entry.summaries, service.name) : null;
-    return { env, entry, summary };
-  });
-  if (!cells.some((c) => c.summary)) return null;
-  const tags = cells.filter((c) => c.entry).map((c) => c.summary?.tag ?? null);
-  const drift = tags.some((t) => t !== tags[0]);
-  return (
-    <div className="mt-1 flex flex-wrap items-center gap-1" aria-label={`${service.name} versions`}>
-      {cells.map(({ env, entry, summary }) => {
-        const label = `${env.toUpperCase()} ${entry ? summary?.tag ?? 'not in compose' : 'no file'}`;
-        const style = !entry
-          ? 'border-dashed border-white/15 text-zinc-400'
-          : drift
-          ? 'border-amber-700 bg-amber-950/40 text-amber-300'
-          : 'border-emerald-900 bg-emerald-950/30 text-emerald-300';
-        return entry && onEditVersion ? (
-          <button
-            key={env}
-            type="button"
-            title={summary ? `${summary.image}\nClick to edit this version in the ${env} compose file` : `Not found in the ${env} compose file`}
-            onClick={() => onEditVersion(env, service.server, entry.fileId, summary?.image ?? null)}
-            className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] hover:brightness-125 ${style}`}
-          >
-            {label}
-          </button>
-        ) : (
-          <span key={env} className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${style}`}>
-            {label}
-          </span>
-        );
-      })}
-      {drift && <span className="text-[10px] text-amber-400">version drift</span>}
-    </div>
-  );
-};
-
-export const CatalogView: React.FC<CatalogViewProps> = ({
+// Meta-data only: where each service runs (server registry), how services are
+// grouped, and which ports they publish. What version is deployed lives on the
+// Dashboard (Drift Matrix) and in the Configs vault, not here.
+export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
   services,
   editable,
   warning,
@@ -459,8 +412,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   servers,
   serversWarning,
   onReloadServers,
-  composeIndex = {},
-  onEditVersion,
 }) => {
   const [newGroup, setNewGroup] = useState('');
   const [newName, setNewName] = useState('');
@@ -518,7 +469,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
 
   const handleDelete = async (s: CatalogService) => {
     const ports = s.ports.length ? ` and its ${s.ports.length} saved port(s)` : '';
-    if (!window.confirm(`Remove ${s.name}${ports} from the catalog? Past release records keep their text.`)) return;
+    if (!window.confirm(`Remove ${s.name}${ports} from the service list? Past release records keep their text.`)) return;
     await run(() => apiFetch(`/api/catalog/services/${s.id}`, { method: 'DELETE' }), 'Could not delete the service');
   };
 
@@ -526,8 +477,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Boxes className="h-5 w-5 text-emerald-400" />
-          <h1 className="text-lg font-semibold text-white">Service Catalog</h1>
+          <Network className="h-5 w-5 text-emerald-400" />
+          <h1 className="text-lg font-semibold text-white">Infrastructure</h1>
           <span className="text-xs text-zinc-400">
             {services.length} services · {groups.length} groups
           </span>
@@ -582,6 +533,12 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
 
       <ServersPanel servers={servers} warning={serversWarning} onReload={onReloadServers} />
 
+      <CommonSyncPanel servers={servers} onApplied={onReloadServers} />
+
+      <ToolkitRolloutPanel servers={servers} />
+
+      <PortMapPanel services={services} />
+
       <div className="grid gap-4 md:grid-cols-2">
         {byGroup.map(([group, list]) => (
           <section key={group} className={`${cardClass} p-5`}>
@@ -615,7 +572,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     <div className="min-w-0">
                       <div className="font-mono text-sm text-zinc-200">{s.name}</div>
                       {s.image && <div className="truncate font-mono text-[11px] text-zinc-400">{s.image}</div>}
-                      <VersionChips service={s} composeIndex={composeIndex} onEditVersion={onEditVersion} />
                       {s.ports.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {s.ports.map((p) => (

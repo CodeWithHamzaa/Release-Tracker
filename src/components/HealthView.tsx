@@ -17,13 +17,21 @@ import { ReleaseRecord } from '@/lib/types';
 import { ageLevel, ageText, serverHealth, versionChecks, HealthReportMeta, ServerHealth } from '@/lib/healthModel';
 import { compareSnapshots, checklistText, parseIgnoreKeys, CompareResult } from '@/lib/toolkitCompare';
 import type { ParsedSnapshot } from '@/lib/toolkitParse';
-import { buildPromotion, targetTokensFrom } from '@/lib/promotionGenerator';
+import { buildPromotion } from '@/lib/promotionGenerator';
+import { looksLikeReceipt } from '@/lib/receiptParse';
+import { ReceiptImportModal } from './ReceiptImportModal';
+import { RiskPanel, RiskBadge } from './RiskPanel';
+import { RolloutPlanPanel } from './RolloutPlanPanel';
+import { buildRoleRiskInput, canProceed } from '@/lib/riskInputs';
+import { evaluateRoleRisk } from '@/lib/riskEngine';
+import { defaultPatchId } from '@/lib/rolloutPlan';
 import { PATCH_ID_PATTERN } from '@/lib/runbook';
 import { apiFetch, apiErrorMessage } from '../api';
 import { PromotionRunbook } from './PromotionRunbook';
 import { copyText } from '../download';
 import type { HealthApi, UploadOutcome } from '../useHealth';
 import type { ServerNode } from '../useServers';
+import type { RiskReport } from '@/lib/riskEngine';
 import type { ComposeIndex } from '../useConfigs';
 
 const ENVS = ['SIT', 'UAT', 'Prod'] as const;
@@ -334,10 +342,12 @@ const PromotionModal: React.FC<{
   sourceEnv: string;
   targetEnv: string;
   servers: ServerNode[];
+  risk: RiskReport;
   onClose: () => void;
-}> = ({ result, role, sourceEnv, targetEnv, servers, onClose }) => {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const [patchId, setPatchId] = useState(`PROMO-${ROLE_SHORT[role] ?? 'ROLE'}-${envLabel(sourceEnv)}-${envLabel(targetEnv)}-${today}`);
+}> = ({ result, role, sourceEnv, targetEnv, servers, risk, onClose }) => {
+  const [patchId, setPatchId] = useState(defaultPatchId(role, sourceEnv, targetEnv));
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
+  const gate = canProceed(risk.findings, reviewed);
   const find = (env: string) => servers.find((s) => s.environment === env && s.role === role) ?? null;
   const plan = useMemo(
     () =>
@@ -347,7 +357,6 @@ const PromotionModal: React.FC<{
         patchId: patchId.trim(),
         sourceServer: find(sourceEnv),
         targetServer: find(targetEnv),
-        targetTokens: targetTokensFrom(servers, targetEnv),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [result, role, patchId, sourceEnv, targetEnv, servers]
@@ -393,14 +402,19 @@ const PromotionModal: React.FC<{
               className={`${inputClass} mt-1 font-mono ${idOk ? '' : 'border-amber-600'}`}
             />
           </label>
-          <PromotionRunbook sourceEnv={envLabel(sourceEnv)} targetEnv={envLabel(targetEnv)} plan={plan} />
+          <RiskPanel
+            report={risk}
+            reviewed={reviewed}
+            onToggle={(id) => setReviewed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; })}
+          />
+          <PromotionRunbook sourceEnv={envLabel(sourceEnv)} targetEnv={envLabel(targetEnv)} plan={plan} locked={gate.ok ? null : gate.reason} />
         </div>
       </div>
     </div>
   );
 };
 
-const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[] }> = ({ reports, servers }) => {
+const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[]; records: ReleaseRecord[]; composeIndex: ComposeIndex }> = ({ reports, servers, records, composeIndex }) => {
   const snapshots = reports.filter((r) => r.kind === 'snapshot');
   const [role, setRole] = useState<string>('ChatBot / NLU');
   const [source, setSource] = useState('SIT');
@@ -421,6 +435,11 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
       error = e.message;
     }
   }
+
+  const risk = useMemo(
+    () => evaluateRoleRisk(buildRoleRiskInput({ role, sourceEnv: source, targetEnv: target, reports, servers, compose: composeIndex, records, ignoreKeys: ignore })),
+    [role, source, target, reports, servers, composeIndex, records, ignore]
+  );
 
   const list = (title: string, items: string[], tone: string) =>
     items.length > 0 && (
@@ -491,6 +510,7 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
             >
               <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy checklist'}
             </button>
+            <RiskBadge report={risk} />
             <button type="button" id="btn-generate-promotion" className={primaryBtn} onClick={() => setShowPromotion(true)}>
               <FileTerminal className="h-4 w-4" /> Generate Promotion Scripts
             </button>
@@ -512,6 +532,7 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
           sourceEnv={source}
           targetEnv={target}
           servers={servers}
+          risk={risk}
           onClose={() => setShowPromotion(false)}
         />
       )}
@@ -606,12 +627,15 @@ export const HealthView: React.FC<{
   servers: ServerNode[];
   composeIndex: ComposeIndex;
   onReloadServers: () => Promise<void> | void;
-}> = ({ health, records, servers, composeIndex, onReloadServers }) => {
+  onReceiptApplied: (updated: ReleaseRecord[], created: ReleaseRecord[]) => void;
+}> = ({ health, records, servers, composeIndex, onReloadServers, onReceiptApplied }) => {
   const [pasted, setPasted] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<UploadOutcome[]>([]);
   const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<{ environment: string; role: string } | null>(null);
+  // Deployment receipts are reviewed one at a time before anything is saved.
+  const [receiptQueue, setReceiptQueue] = useState<{ text: string; label: string }[]>([]);
 
   const healthOf = (env: string, role: string) => {
     const list = health.reports.filter((r) => r.environment === env && r.role === role);
@@ -619,6 +643,10 @@ export const HealthView: React.FC<{
   };
 
   const run = async (items: { text: string; label: string }[]) => {
+    if (!items.length) return;
+    const receipts = items.filter((it) => looksLikeReceipt(it.text));
+    if (receipts.length) setReceiptQueue((q) => [...q, ...receipts]);
+    items = items.filter((it) => !looksLikeReceipt(it.text));
     if (!items.length) return;
     setBusy(true);
     const out: UploadOutcome[] = [];
@@ -655,6 +683,17 @@ export const HealthView: React.FC<{
         </p>
       )}
 
+      {receiptQueue.length > 0 && (
+        <ReceiptImportModal
+          key={receiptQueue[0].label + receiptQueue.length}
+          text={receiptQueue[0].text}
+          label={receiptQueue[0].label}
+          health={health}
+          onClose={() => setReceiptQueue((q) => q.slice(1))}
+          onApplied={onReceiptApplied}
+        />
+      )}
+
       {/* Upload */}
       <section className={`${card} space-y-4`}>
         <div className="flex items-center gap-2">
@@ -678,7 +717,7 @@ export const HealthView: React.FC<{
             }`}
           >
             {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-            Drop .snapshot files (from alara/snapshots/) or saved status/doctor output, or click to choose
+            Drop .snapshot files (from alara/snapshots/), saved status/doctor output, or deployment receipts (alara/receipts/*.json), or click to choose
             <span className="text-zinc-400">Environment and role are read from the file itself.</span>
             <input
               type="file"
@@ -779,7 +818,8 @@ export const HealthView: React.FC<{
         />
       )}
 
-      <ChecklistPanel reports={health.reports} servers={servers} />
+      <ChecklistPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} />
+      <RolloutPlanPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} />
       <ToolkitPanel reports={health.reports} servers={servers} onReloadServers={onReloadServers} />
     </div>
   );

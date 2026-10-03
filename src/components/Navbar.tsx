@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Activity, Boxes, LogOut, FolderLock, HeartPulse } from 'lucide-react';
+import { Layers, Plus, Activity, Network, LogOut, FolderLock, HeartPulse } from 'lucide-react';
 
 interface NavbarProps {
   currentPath: string;
@@ -80,15 +80,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="hidden lg:inline">Dashboard</span>
               </button>
               <button
-                id="btn-nav-catalog"
-                aria-label="Catalog"
-                title="Catalog"
-                onClick={() => onNavigate('/catalog')}
-                aria-current={currentPath === '/catalog' ? 'page' : undefined}
-                className={tabClass(currentPath === '/catalog')}
+                id="btn-nav-infrastructure"
+                aria-label="Infrastructure"
+                title="Infrastructure"
+                onClick={() => onNavigate('/infrastructure')}
+                aria-current={currentPath === '/infrastructure' ? 'page' : undefined}
+                className={tabClass(currentPath === '/infrastructure')}
               >
-                <Boxes className="h-4 w-4 text-emerald-400" />
-                <span className="hidden lg:inline">Catalog</span>
+                <Network className="h-4 w-4 text-emerald-400" />
+                <span className="hidden lg:inline">Infrastructure</span>
               </button>
               <button
                 id="btn-nav-configs"

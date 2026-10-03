@@ -4,63 +4,27 @@
 // unchanged) and writes two bash scripts:
 //   Part 1 (source server): docker save the images the target needs, plus
 //          SHA256SUMS, into alara/patches/export/<PATCH_ID>/.
-//   Part 2 (target server): add missing plain env keys (with the target's
-//          own IPs/domain filled in), then apply the images through the
-//          toolkit's own patch flow (./alara_server.sh patch plan/apply:
-//          compose backup, health gate, auto-rollback), or restart when
-//          there are no images.
+//   Part 2 (target server): add missing plain env keys, then apply the images
+//          through the toolkit's own patch flow (./alara_server.sh patch
+//          apply: plan + confirmation, compose backup, health gate,
+//          auto-rollback), or restart when there are no images.
+//
+// Single source of truth: the toolkit owns who-is-this-server, the IP and
+// domain tables and the patch preview/confirm. The scripts source
+// alara/alara_common.sh for the first two (`<IP:ROLE>` / `<DOMAIN:EVA>`
+// placeholders in env values are filled in ON the server with
+// alara_get_ip / alara_get_domain), so the tracker keeps no copy of them.
+// Same options as the toolkit's alara_deploy.sh: --env, --dry-run, --timeout.
+// Part 2 also writes a deployment receipt (alara/receipts/<PATCH_ID>_<time>.json)
+// that packages the toolkit's own patch record; see lib/receiptParse.ts.
 // Anything the scripts must not decide alone (secrets, changed values,
 // target-only keys, new services...) is listed for manual review, never
 // dropped.
 
 import type { CompareResult } from './toolkitCompare.js';
+import { classifyCompareItems } from './compareItems.js';
 import { scriptImageRepo } from './toolkitCompare.js';
-import { composeChecks, indexEnv, PATCH_ID_PATTERN, RunbookServer, scriptGuard, shellQuote } from './runbook.js';
-
-const ROLE_CODE_BY_NAME: Record<string, string> = {
-  'Bot-Builder': 'BOT_BUILDER',
-  'ChatBot / NLU': 'CHAT_BOT',
-  Database: 'DATABASE',
-  'Chat-Service': 'CHAT_SERVICE',
-};
-
-// Values the snapshot normalised (<IP:ROLE>, <DOMAIN:EVA>) mapped back to the
-// TARGET environment's real ones.
-export interface TargetTokens {
-  ips: Record<string, string>; // role code -> IP
-  domain: string | null;
-}
-
-export function targetTokensFrom(
-  servers: { environment: string; role: string; ip: string | null; domain: string | null }[],
-  environment: string
-): TargetTokens {
-  const ips: Record<string, string> = {};
-  let domain: string | null = null;
-  for (const s of servers) {
-    if (s.environment.toUpperCase() !== environment.toUpperCase()) continue;
-    const code = ROLE_CODE_BY_NAME[s.role];
-    if (code && s.ip) ips[code] = s.ip;
-    if (!domain && s.domain) domain = s.domain;
-  }
-  return { ips, domain };
-}
-
-// Fill placeholders; null when any of them can't be resolved.
-export function resolvePlaceholders(value: string, tokens: TargetTokens): string | null {
-  let unresolved = false;
-  const out = value.replace(/<IP:([A-Z_]+)>|<DOMAIN:([A-Z_]+)>/g, (m, ipRole: string | undefined, domainName: string | undefined) => {
-    if (ipRole) {
-      const ip = tokens.ips[ipRole];
-      if (ip) return ip;
-    } else if (domainName === 'EVA' && tokens.domain) {
-      return tokens.domain;
-    }
-    unresolved = true;
-    return m;
-  });
-  return unresolved ? null : out;
-}
+import { composeChecks, indexEnv, PATCH_ID_PATTERN, receiptHelpers, RunbookServer, scriptGuard, shellQuote } from './runbook.js';
 
 export interface PromotionImage {
   kind: 'update' | 'deploy';
@@ -75,8 +39,8 @@ export interface PromotionEnvAdd {
   file: string;
   key: string;
   sourceValue: string;
-  value: string | null; // resolved for the target; null when not appended
-  status: 'append' | 'secret' | 'unresolved' | 'multiline';
+  value: string | null; // the source value, placeholders intact (the script fills them in on the server); null when not appended
+  status: 'append' | 'secret' | 'multiline';
 }
 
 export interface PromotionInput {
@@ -85,7 +49,6 @@ export interface PromotionInput {
   patchId: string;
   sourceServer: RunbookServer | null;
   targetServer: RunbookServer | null;
-  targetTokens: TargetTokens;
   generatedAt?: Date;
 }
 
@@ -102,9 +65,6 @@ export interface PromotionPlan {
   errors: string[]; // why a script could not be generated
 }
 
-const UPDATE = /^\[IMAGE\] UPDATE (\S+) on (\S+): (.+)  ->  (.+)$/;
-const DEPLOY = /^\[IMAGE\] DEPLOY (\S+) \((.+)\) to (\S+) — running on /;
-const ADD = /^\[([^\]]+)\] ADD (\S+) to (\S+) \(value on (\S+): ([\s\S]*)\)$/;
 const PLAIN_FILE = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
 
 export function tarFileName(image: string): string {
@@ -120,39 +80,33 @@ export function buildPromotion(input: PromotionInput): PromotionPlan {
   const envAdds: PromotionEnvAdd[] = [];
   const manual: string[] = [];
 
-  for (const item of compare.critical) {
-    let m: RegExpExecArray | null;
-    if (!item.includes('\n') && (m = UPDATE.exec(item))) {
-      const [, container, , previous, image] = m;
-      const sameRepo = scriptImageRepo(previous) === scriptImageRepo(image);
+  for (const item of classifyCompareItems(compare)) {
+    if (item.kind === 'image-update') {
+      const sameRepo = scriptImageRepo(item.previous) === scriptImageRepo(item.image);
       images.push({
         kind: 'update',
-        container,
-        image,
-        previous,
-        file: tarFileName(image),
-        manual: sameRepo ? null : `repository changed (${scriptImageRepo(previous)} → ${scriptImageRepo(image)}); alara patch matches by repository, so update the image: line by hand`,
+        container: item.container,
+        image: item.image,
+        previous: item.previous,
+        file: tarFileName(item.image),
+        manual: sameRepo ? null : `repository changed (${scriptImageRepo(item.previous)} → ${scriptImageRepo(item.image)}); alara patch matches by repository, so update the image: line by hand`,
       });
-    } else if (!item.includes('\n') && (m = DEPLOY.exec(item))) {
-      const [, container, image] = m;
+    } else if (item.kind === 'image-deploy') {
       images.push({
         kind: 'deploy',
-        container,
-        image,
+        container: item.container,
+        image: item.image,
         previous: null,
-        file: tarFileName(image),
+        file: tarFileName(item.image),
         manual: 'new service: add it to docker-compose.yml by hand (alara patch only updates existing image: lines)',
       });
-    } else if ((m = ADD.exec(item)) && PLAIN_FILE.test(m[1])) {
-      const [, file, key, , , sourceValue] = m;
+    } else if (item.kind === 'env-add' && PLAIN_FILE.test(item.file)) {
+      const { file, key, value: sourceValue } = item;
       if (sourceValue.startsWith('SHA256:')) envAdds.push({ file, key, sourceValue, value: null, status: 'secret' });
       else if (sourceValue.includes('\n')) envAdds.push({ file, key, sourceValue, value: null, status: 'multiline' });
-      else {
-        const value = resolvePlaceholders(sourceValue, input.targetTokens);
-        envAdds.push({ file, key, sourceValue, value, status: value === null ? 'unresolved' : 'append' });
-      }
+      else envAdds.push({ file, key, sourceValue, value: sourceValue, status: 'append' });
     } else {
-      manual.push(`CRITICAL ${item}`);
+      manual.push(`CRITICAL ${item.raw}`);
     }
   }
   for (const item of compare.expected) manual.push(`EXPECTED ${item}`);
@@ -175,19 +129,19 @@ export function buildPromotion(input: PromotionInput): PromotionPlan {
     plan.errors.push('PATCH_ID must be letters, digits, dot, dash or underscore (it is a folder name).');
     return plan;
   }
-  if (input.sourceServer?.ip) plan.sourceScript = sourceScript(plan, input);
-  else plan.errors.push(`Source script needs the ${compare.sourceEnv} / ${input.role} IP in the server registry (Catalog → Servers).`);
-  if (input.targetServer?.ip) plan.targetScript = targetScript(plan, input);
-  else plan.errors.push(`Target script needs the ${compare.targetEnv} / ${input.role} IP in the server registry (Catalog → Servers).`);
+  plan.sourceScript = sourceScript(plan, input);
+  plan.targetScript = targetScript(plan, input);
   return plan;
 }
 
-function header(plan: PromotionPlan, input: PromotionInput, part: string, server: RunbookServer) {
+function header(plan: PromotionPlan, input: PromotionInput, part: string, env: string, server: RunbookServer | null) {
   const generated = (input.generatedAt ?? new Date()).toISOString();
   return `#!/usr/bin/env bash
 # ALARA release promotion ${plan.sourceEnv} -> ${plan.targetEnv} · ${plan.role}
-# ${part} — run on ${server.ip}${server.runAs ? ` as ${server.runAs}` : ''}
+# ${part} — run on the ${indexEnv(env)} ${plan.role} server${server?.runAs ? ` as ${server.runAs}` : ''}
 # PATCH_ID ${plan.patchId}, generated by Release Tracker at ${generated}
+# Run:  bash <this file> --env ${indexEnv(env)} [--dry-run] [--timeout SEC]${part.startsWith('PART 2') ? ' [--receipt RECORD_ID]' : ''}
+#   --dry-run   show what would happen, change nothing${part.startsWith('PART 2') ? '\n#   --receipt   write the receipt for an existing patch record, nothing else\n# After a run it writes alara/receipts/<PATCH_ID>_<time>.json: copy it back and\n# upload it in Release Tracker (Health > Add reports) to close the records.' : ''}
 # If you edited this file on Windows, run: sed -i 's/\\r$//' <this file>
 set -euo pipefail
 trap 'echo "ABORTED at line $LINENO. Nothing after this point ran." >&2' ERR
@@ -200,13 +154,12 @@ const say = (text: string) => `echo ${shellQuote(text)}`;
 const step = (text: string) => `echo\necho ${shellQuote(`==> ${text}`)}`;
 
 function sourceScript(plan: PromotionPlan, input: PromotionInput): string {
-  const server = input.sourceServer!;
-  const where = `${indexEnv(plan.sourceEnv)} / ${plan.role}`;
+  const server = input.sourceServer;
   const lines = [
-    header(plan, input, 'PART 1: SOURCE EXPORT', server),
-    scriptGuard(server, where),
-    '# 2. Compose folder and toolkit present.',
-    composeChecks(),
+    header(plan, input, 'PART 1: SOURCE EXPORT', plan.sourceEnv, server),
+    scriptGuard({ environment: plan.sourceEnv, role: plan.role, server }),
+    '# Compose folder, toolkit and server identity.',
+    composeChecks({ patch: false }),
     'command -v docker >/dev/null 2>&1 || die "docker not found on PATH"',
     '',
   ];
@@ -216,16 +169,17 @@ function sourceScript(plan: PromotionPlan, input: PromotionInput): string {
   }
   lines.push(
     'OUT="alara/patches/export/$PATCH_ID"',
-    'mkdir -p "$OUT"',
+    '[ "$DRY_RUN" = 1 ] || mkdir -p "$OUT"',
     '',
     'save_image() { # <image> <tar file>',
     '  docker image inspect "$1" >/dev/null 2>&1 || die "image $1 is not on this server (check: docker images)"',
+    '  if [ "$DRY_RUN" = 1 ]; then echo "  would save $1 -> $OUT/$2"; return 0; fi',
     '  echo "  saving $1 -> $OUT/$2"',
     '  docker save -o "$OUT/$2" "$1"',
     '}',
     '',
     step(`Exporting ${plan.images.length} image(s) that ${plan.targetEnv} needs`),
-    'df -h "$OUT" | tail -1 | awk \'{print "  free space here: " $4}\''
+    '[ "$DRY_RUN" = 1 ] || df -h "$OUT" | tail -1 | awk \'{print "  free space here: " $4}\''
   );
   for (const img of plan.images) {
     lines.push(`# ${img.container}: ${img.previous ? `${img.previous} -> ` : 'new on target: '}${img.image}`);
@@ -233,6 +187,7 @@ function sourceScript(plan: PromotionPlan, input: PromotionInput): string {
   }
   lines.push(
     '',
+    'if [ "$DRY_RUN" = 1 ]; then echo; echo "DRY RUN: nothing was written."; exit 0; fi',
     step('Writing SHA256SUMS (alara patch verifies the tars with it)'),
     '(cd "$OUT" && sha256sum -- *.tar > SHA256SUMS)',
     'ls -lh "$OUT"',
@@ -247,76 +202,101 @@ function sourceScript(plan: PromotionPlan, input: PromotionInput): string {
 }
 
 function targetScript(plan: PromotionPlan, input: PromotionInput): string {
-  const server = input.targetServer!;
-  const where = `${indexEnv(plan.targetEnv)} / ${plan.role}`;
+  const server = input.targetServer;
   const appends = plan.envAdds.filter((e) => e.status === 'append');
   const patchable = plan.images.filter((i) => !i.manual);
   const files = [...new Set(plan.envAdds.map((e) => e.file))];
+  const prod = plan.targetEnv.toUpperCase() === 'PROD';
   const lines = [
-    header(plan, input, 'PART 2: TARGET IMPORT', server),
-    scriptGuard(server, where),
-    '# 2. Compose folder and toolkit present.',
-    composeChecks(),
+    header(plan, input, 'PART 2: TARGET IMPORT', plan.targetEnv, server),
+    scriptGuard({ environment: plan.targetEnv, role: plan.role, server, receipt: true }),
+    '# Compose folder, toolkit and server identity.',
+    composeChecks({ patch: patchable.length > 0 }),
+    receiptHelpers('promotion-target'),
+    'if [ -n "$RECEIPT_FOR" ]; then rebuild_receipt "$RECEIPT_FOR"; exit 0; fi',
   ];
   if (patchable.length) {
     lines.push('[ -d "alara/patches/incoming/$PATCH_ID" ] || die "copy the folder from Part 1 to alara/patches/incoming/$PATCH_ID/ first"');
   }
-  lines.push(
-    '',
-    'ensure_newline() { if [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ]; then echo >> "$1"; fi; }',
-    'has_key() { awk -F= -v k="$2" \'$1==k{found=1} END{exit !found}\' "$1"; }',
-    'add_env() { # <file> <key> <KEY=VALUE line>',
-    '  if has_key "$1" "$2"; then echo "  skip   $2: already in $1 (left unchanged)"; return 0; fi',
-    '  ensure_newline "$1"',
-    '  printf \'%s\\n\' "$3" >> "$1"',
-    '  echo "  added  $2 to $1"',
-    '}',
-    '',
-    step('What this script will do'),
-    say(`Env keys to add (plain values, ${plan.targetEnv} IPs/domain filled in): ${appends.length}`),
-    ...appends.map((e) => say(`  ${e.file}: ${e.key}=${e.value}`)),
-    say(`Images via ./alara_server.sh patch: ${patchable.length}`),
-    ...patchable.map((i) => say(`  ${i.container}: ${i.previous} -> ${i.image}`))
-  );
-  if (patchable.length) {
-    lines.push('', step('Patch preview (changes nothing)'), './alara_server.sh patch plan "$PATCH_ID"');
-  }
-  if (!appends.length && !patchable.length) {
-    lines.push('', say('Nothing for this script to apply automatically. See the manual items below.'));
-  } else {
+  if (plan.envAdds.length) {
     lines.push(
       '',
-      `read -r -p "Type 'apply' to make these changes on $EXPECTED_IP: " answer`,
-      '[ "$answer" = "apply" ] || { echo "Stopped before any change."; exit 0; }'
+      'ensure_newline() { if [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ]; then echo >> "$1"; fi; }',
+      'has_key() { awk -F= -v k="$2" \'$1==k{found=1} END{exit !found}\' "$1"; }',
+      '',
+      '# Fill <IP:ROLE> / <DOMAIN:NAME> placeholders from the toolkit\'s own address tables',
+      '# (alara_common.sh), for the environment this server is. Fails if one is unknown.',
+      'resolve() { # <value with placeholders>',
+      '  ( ALARA_WORKDIR="$PWD"; . alara/alara_common.sh >/dev/null 2>&1 || exit 1',
+      '    v="$1"',
+      '    while [[ "$v" =~ \\<IP:([A-Z_]+)\\> ]]; do',
+      '      ip="$(alara_get_ip "${BASH_REMATCH[1]}" "$ALARA_ENV")" || exit 1; v="${v//"${BASH_REMATCH[0]}"/$ip}"',
+      '    done',
+      '    while [[ "$v" =~ \\<DOMAIN:([A-Z_]+)\\> ]]; do',
+      '      d="$(alara_get_domain "${BASH_REMATCH[1]}" "$ALARA_ENV")" || exit 1; v="${v//"${BASH_REMATCH[0]}"/$d}"',
+      '    done',
+      '    printf \'%s\' "$v" )',
+      '}',
+      '',
+      'add_env() { # <file> <key> <value, may hold placeholders>',
+      '  if has_key "$1" "$2"; then echo "  skip   $2: already in $1 (left unchanged)"; return 0; fi',
+      '  if ! val="$(resolve "$3")"; then echo "  MANUAL: \'$2\' not added: the toolkit has no address for a placeholder in: $3"; return 0; fi',
+      '  if [ "$DRY_RUN" = 1 ]; then echo "  would add $2=$val to $1"; return 0; fi',
+      '  ensure_newline "$1"',
+      '  printf \'%s=%s\\n\' "$2" "$val" >> "$1"',
+      '  ADDED+=("$1:$2")',
+      '  echo "  added  $2 to $1"',
+      '}',
+      'backup_env() { # <file>',
+      '  [ -f "$1" ] || die "$1 not found in $(pwd)"',
+      '  if [ "$DRY_RUN" = 1 ]; then echo "  would back up $1 to alara/backups/"; return 0; fi',
+      '  cp -p "$1" "alara/backups/promotion_${STAMP}_$1"',
+      '  echo "  backup alara/backups/promotion_${STAMP}_$1"',
+      '}'
+    );
+  }
+  lines.push(
+    '',
+    step('What this script will do'),
+    say(`Env keys to add (IP/domain placeholders are filled in from this server's toolkit tables): ${appends.length}`),
+    ...appends.map((e) => say(`  ${e.file}: ${e.key}=${e.value}`)),
+    say(`Images via ./alara_server.sh patch apply (it shows its own plan and asks for confirmation): ${patchable.length}`),
+    ...patchable.map((i) => say(`  ${i.container}: ${i.previous} -> ${i.image}`))
+  );
+
+  // One preview and one confirmation. patch apply previews and confirms the
+  // image change itself; this script confirms only what the toolkit does not
+  // cover, the env-key edits, and shows the patch plan first when it makes them.
+  if (appends.length && patchable.length) {
+    lines.push('', step('Patch preview (changes nothing)'), './alara_server.sh patch plan "$PATCH_ID"');
+  } else if (patchable.length) {
+    lines.push('', 'if [ "$DRY_RUN" = 1 ]; then', '  ./alara_server.sh patch plan "$PATCH_ID"', 'fi');
+  }
+  if (appends.length) {
+    lines.push(
+      '',
+      'if [ "$DRY_RUN" != 1 ]; then',
+      `  read -r -p "Type '${prod ? 'PROD' : 'apply'}' to add these env keys${patchable.length ? '' : ' and restart'}: " answer`,
+      `  [ "$answer" = "${prod ? 'PROD' : 'apply'}" ] || { echo "Stopped before any change."; exit 0; }`,
+      'fi'
     );
   }
 
   if (plan.envAdds.length) {
-    lines.push('', step('Step 1: env files'), 'STAMP="$(date +%Y%m%d_%H%M%S)"', 'mkdir -p alara/backups');
+    lines.push('', step('Step 1: env files'), 'STAMP="$(date +%Y%m%d_%H%M%S)"', '[ "$DRY_RUN" = 1 ] || mkdir -p alara/backups');
     for (const file of files) {
       const adds = plan.envAdds.filter((e) => e.file === file);
       const fileAppends = adds.filter((e) => e.status === 'append');
       const f = shellQuote(file);
       lines.push('', `# ${file}`);
-      if (fileAppends.length) {
-        lines.push(
-          `[ -f ${f} ] || die "${file} not found in $(pwd)"`,
-          `cp -p ${f} "alara/backups/promotion_\${STAMP}_${file}"`,
-          `echo "  backup alara/backups/promotion_\${STAMP}_${file}"`
-        );
-      }
+      if (fileAppends.length) lines.push(`backup_env ${f}`);
       for (const e of adds) {
         if (e.status === 'append') {
-          lines.push(`add_env ${f} ${shellQuote(e.key)} ${shellQuote(`${e.key}=${e.value}`)}`);
+          lines.push(`add_env ${f} ${shellQuote(e.key)} ${shellQuote(e.value ?? '')}`);
         } else if (e.status === 'secret') {
           lines.push(
             `# WARNING: '${e.key}' exists in source but is missing here. Add manually.`,
             say(`  WARNING: '${e.key}' (secret) exists on ${plan.sourceEnv} but is missing here. Add it to ${file} by hand, then: ./alara_server.sh encrypt`)
-          );
-        } else if (e.status === 'unresolved') {
-          lines.push(
-            `# MANUAL: '${e.key}' value has a placeholder this tracker could not fill for ${plan.targetEnv}: ${e.sourceValue.replace(/\n/g, ' ')}`,
-            say(`  MANUAL: '${e.key}' not added: its ${plan.sourceEnv} value has an IP/domain placeholder with no ${plan.targetEnv} entry in the server registry.`)
           );
         } else {
           lines.push(
@@ -328,15 +308,26 @@ function targetScript(plan: PromotionPlan, input: PromotionInput): string {
     }
   }
 
+  lines.push('', 'if [ "$DRY_RUN" = 1 ]; then echo; echo "DRY RUN: nothing was changed."; exit 0; fi');
+
   if (patchable.length) {
     lines.push(
       '',
-      step('Step 2: images via alara patch (backup, health gate, auto-rollback)'),
-      ...(plan.targetEnv.toUpperCase() === 'PROD' ? [say('alara_server.sh will ask you to type PROD. Do not use --yes (refused on PROD).')] : []),
+      step('Step 2: images via alara patch (plan, confirmation, backup, health gate, auto-rollback)'),
+      ...(prod ? [say('alara_server.sh will ask you to type PROD.')] : []),
+      'APPLY_ARGS=()',
+      '[ -z "$TIMEOUT" ] || APPLY_ARGS+=(--timeout "$TIMEOUT")',
+      'BEFORE_RECORDS="$(patch_records)"',
       'set +e',
-      './alara_server.sh patch apply "$PATCH_ID"',
+      './alara_server.sh patch apply "$PATCH_ID" ${APPLY_ARGS[@]+"${APPLY_ARGS[@]}"}',
       'rc=$?',
       'set -e',
+      'NEW_RECORD="$(new_patch_record "$BEFORE_RECORDS")"',
+      'if [ -n "$NEW_RECORD" ]; then outcome=recorded',
+      'elif [ "$rc" = 0 ]; then outcome=nothing-applicable',
+      'elif [ "$rc" = 2 ]; then outcome=refused',
+      'else outcome=failed; fi',
+      'write_receipt "$rc" "$outcome" "$NEW_RECORD"',
       'case "$rc" in',
       '  0) echo "Patch applied; containers restarted with the new images and env." ;;',
       '  1) echo "Health gate failed: rolled back to the old images. Env changes above are saved but not loaded; restore the backups in alara/backups/ or run ./alara_server.sh restart." ;;',
@@ -346,7 +337,16 @@ function targetScript(plan: PromotionPlan, input: PromotionInput): string {
       'esac'
     );
   } else if (appends.length) {
-    lines.push('', step('Step 2: restart to load the env changes'), './alara_server.sh restart');
+    lines.push(
+      '',
+      step('Step 2: restart to load the env changes'),
+      'set +e',
+      './alara_server.sh restart',
+      'rc=$?',
+      'set -e',
+      'if [ "$rc" = 0 ]; then outcome=env-restarted; else outcome=failed; fi',
+      'write_receipt "$rc" "$outcome" ""'
+    );
   }
 
   const manualLines = [
@@ -359,7 +359,7 @@ function targetScript(plan: PromotionPlan, input: PromotionInput): string {
   }
 
   lines.push('', step('Result'), './alara_server.sh status || true');
-  if (patchable.length) lines.push('exit "$rc"');
+  if (patchable.length || appends.length) lines.push('exit "$rc"');
   lines.push('');
   return lines.join('\n');
 }

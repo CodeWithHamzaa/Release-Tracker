@@ -6,6 +6,7 @@ import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { buildRunbook, runbookMarkdown, runbookScript, shellQuote, RunbookInput } from './runbook.js';
 import { syncLines } from './syncLines.js';
+import { installFakeToolkit } from './fakeToolkit.js';
 import type { ReleaseRecord } from './types.js';
 
 const sitChatbot: RunbookInput = {
@@ -65,7 +66,8 @@ test('runbook: bad PATCH_ID is flagged and the script refuses it', () => {
   const bad = { ...sitChatbot, patchId: '../../etc; rm -rf /' };
   assert.ok(buildRunbook(bad).warnings.some((w) => /PATCH_ID/.test(w)));
   assert.throws(() => runbookScript(bad), /Invalid PATCH_ID/);
-  assert.throws(() => runbookScript({ ...sitChatbot, server: { ...sitChatbot.server!, ip: null } }), /IP is required/);
+  // No registry entry is needed to build a script any more: the toolkit identifies the server.
+  assert.doesNotThrow(() => runbookScript({ ...sitChatbot, server: null }));
 });
 
 test('shellQuote survives single quotes', () => {
@@ -73,35 +75,41 @@ test('shellQuote survives single quotes', () => {
   assert.equal(out, "it's /root/ISSM/a b");
 });
 
-// Runs the generated script with stubbed hostname / alara_server.sh.
-function runScript(opts: { hostIp: string; runAs?: string | null; answer: string; applyExit?: number; withTars?: boolean }) {
+// Runs the generated script against a stand-in toolkit (lib/fakeToolkit.ts):
+// the machine's IP is simulated with ALARA_TEST_IPS, alara_server.sh is a stub.
+function runScript(opts: {
+  ip: string;
+  args?: string[];
+  runAs?: string | null;
+  answer?: string;
+  applyExit?: number;
+  withTars?: boolean;
+  version?: string;
+  server?: RunbookInput['server'];
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'rb-'));
-  const bin = join(dir, 'bin');
-  mkdirSync(bin);
-  writeFileSync(join(bin, 'hostname'), `#!/bin/sh\necho "${opts.hostIp} 172.17.0.1"\n`);
-  chmodSync(join(bin, 'hostname'), 0o755);
   const compose = join(dir, 'compose');
   mkdirSync(compose);
   writeFileSync(join(compose, 'docker-compose.yml'), 'services:\n  memento:\n    image: memento:v1.1.8\n');
-  writeFileSync(
-    join(compose, 'alara_server.sh'),
-    `#!/bin/sh\necho "$*" >> calls.log\n[ "$1 $2" = "patch apply" ] && exit ${opts.applyExit ?? 0}\nexit 0\n`
-  );
-  chmodSync(join(compose, 'alara_server.sh'), 0o755);
+  installFakeToolkit(compose, { applyExit: opts.applyExit, version: opts.version });
   if (opts.withTars !== false) mkdirSync(join(compose, 'alara/patches/incoming/PATCH-2026-09-20'), { recursive: true });
 
   const script = runbookScript({
     ...sitChatbot,
-    server: { ...sitChatbot.server!, composePath: compose, runAs: opts.runAs === undefined ? userInfo().username : opts.runAs },
+    server:
+      opts.server === undefined
+        ? { ...sitChatbot.server!, composePath: compose, runAs: opts.runAs === undefined ? userInfo().username : opts.runAs }
+        : opts.server && { ...opts.server, composePath: compose },
   });
   const file = join(dir, 'runbook.sh');
   writeFileSync(file, script);
   const syntax = spawnSync('bash', ['-n', file]);
   assert.equal(syntax.status, 0, syntax.stderr.toString());
 
-  const res = spawnSync('bash', [file], {
-    input: `${opts.answer}\n`,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  const res = spawnSync('bash', [file, ...(opts.args ?? ['--env', 'SIT'])], {
+    input: `${opts.answer ?? ''}\n`,
+    cwd: compose, // like standing in the compose folder: no registry path needed
+    env: { ...process.env, ALARA_TEST_IPS: opts.ip },
   });
   const log = join(compose, 'calls.log');
   return {
@@ -111,41 +119,76 @@ function runScript(opts: { hostIp: string; runAs?: string | null; answer: string
   };
 }
 
-test('script: wrong server is refused before touching the toolkit', () => {
-  const r = runScript({ hostIp: '10.0.11.72', answer: 'apply' });
-  assert.equal(r.status, 2);
-  assert.match(r.out, /this runbook is for 10\.42\.42\.250/);
-  assert.deepEqual(r.calls, []);
+const SIT_CHATBOT_IP = '10.42.42.250';
+
+test('script: --env is required and must match the environment it was made for', () => {
+  const none = runScript({ ip: SIT_CHATBOT_IP, args: [] });
+  assert.equal(none.status, 2);
+  assert.match(none.out, /--env is required: this runbook is for SIT/);
+  const wrong = runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'PROD'] });
+  assert.equal(wrong.status, 2);
+  assert.match(wrong.out, /you said --env PROD, but this runbook was made for SIT/);
+  assert.deepEqual([...none.calls, ...wrong.calls], []);
+  assert.equal(runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'sit', '--dry-run'] }).status, 0); // case-insensitive
 });
 
-test('script: wrong account is refused', () => {
-  const r = runScript({ hostIp: '10.42.42.250', runAs: 'chatbotuat-not-me', answer: 'apply' });
-  assert.equal(r.status, 2);
-  assert.match(r.out, /run as chatbotuat-not-me/);
-  assert.deepEqual(r.calls, []);
+test('script: the toolkit decides which server this is; the wrong one is refused', () => {
+  const uat = runScript({ ip: '10.32.32.158' }); // a UAT ChatBot, script is for SIT
+  assert.equal(uat.status, 2);
+  assert.match(uat.out, /this script is for SIT \/ CHAT_BOT, but the toolkit says this server is UAT \/ CHAT_BOT/);
+  const db = runScript({ ip: '10.42.42.251' }); // SIT Database, script is for the ChatBot
+  assert.equal(db.status, 2);
+  assert.match(db.out, /says this server is SIT \/ DATABASE/);
+  const nowhere = runScript({ ip: '192.168.9.9' });
+  assert.equal(nowhere.status, 2);
+  assert.match(nowhere.out, /toolkit could not identify this server/);
+  assert.deepEqual([...uat.calls, ...db.calls, ...nowhere.calls], []);
+});
+
+test('script: no registry entry needed; wrong account refused; old toolkit refused', () => {
+  assert.equal(runScript({ ip: SIT_CHATBOT_IP, server: null, args: ['--env', 'SIT', '--dry-run'] }).status, 0);
+  const acct = runScript({ ip: SIT_CHATBOT_IP, runAs: 'chatbotuat-not-me' });
+  assert.equal(acct.status, 2);
+  assert.match(acct.out, /run as chatbotuat-not-me/);
+  const old = runScript({ ip: SIT_CHATBOT_IP, version: '2.4' });
+  assert.equal(old.status, 2);
+  assert.match(old.out, /v2\.4 has no 'patch' command \(needs v2\.5 or newer\)/);
+  assert.deepEqual([...acct.calls, ...old.calls], []);
+  assert.equal(runScript({ ip: SIT_CHATBOT_IP, version: '2.10' }).status, 0); // version sort, not string sort
+});
+
+test('script: unknown options, --yes and a bad --timeout are refused', () => {
+  assert.match(runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'SIT', '--bogus'] }).out, /unknown option: --bogus/);
+  assert.match(runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'SIT', '--yes'] }).out, /--yes is not supported/);
+  assert.match(runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'SIT', '--timeout', 'abc'] }).out, /--timeout must be a number/);
 });
 
 test('script: missing incoming folder is refused', () => {
-  const r = runScript({ hostIp: '10.42.42.250', answer: 'apply', withTars: false });
+  const r = runScript({ ip: SIT_CHATBOT_IP, withTars: false });
   assert.equal(r.status, 2);
   assert.match(r.out, /copy the tars/);
 });
 
-test('script: right server, answer not "apply" stops after the preview', () => {
-  const r = runScript({ hostIp: '10.42.42.250', answer: 'no' });
+test('script: --dry-run runs patch plan only and changes nothing', () => {
+  const r = runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'SIT', '--dry-run'] });
   assert.equal(r.status, 0);
-  assert.deepEqual(r.calls, ['doctor', 'patch plan PATCH-2026-09-20']);
+  assert.deepEqual(r.calls, ['patch plan PATCH-2026-09-20']);
 });
 
-test('script: right server applies and passes the toolkit exit code through', () => {
-  const ok = runScript({ hostIp: '10.42.42.250', answer: 'apply' });
+test('script: applies once (the toolkit previews and confirms) and passes the exit code through', () => {
+  const ok = runScript({ ip: SIT_CHATBOT_IP });
   assert.equal(ok.status, 0);
-  assert.deepEqual(ok.calls, ['doctor', 'patch plan PATCH-2026-09-20', 'patch apply PATCH-2026-09-20', 'status']);
+  assert.deepEqual(ok.calls, ['patch apply PATCH-2026-09-20', 'status']); // no doctor, no second plan
 
-  const rolledBack = runScript({ hostIp: '10.42.42.250', answer: 'apply', applyExit: 1 });
+  const timed = runScript({ ip: SIT_CHATBOT_IP, args: ['--env', 'SIT', '--timeout', '900'] });
+  assert.deepEqual(timed.calls, ['patch apply PATCH-2026-09-20 --timeout 900', 'status']);
+
+  const rolledBack = runScript({ ip: SIT_CHATBOT_IP, applyExit: 1 });
   assert.equal(rolledBack.status, 1);
   assert.match(rolledBack.out, /rolled back automatically/);
   assert.ok(rolledBack.calls.includes('status'));
+  assert.equal(runScript({ ip: SIT_CHATBOT_IP, applyExit: 2 }).status, 2);
+  assert.equal(runScript({ ip: SIT_CHATBOT_IP, applyExit: 3 }).status, 3);
 });
 
 const rec = (over: Partial<ReleaseRecord>): ReleaseRecord => ({

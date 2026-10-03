@@ -8,6 +8,36 @@ export interface UploadOutcome {
   text: string;
 }
 
+export interface ReceiptResult {
+  success: boolean;
+  preview?: boolean;
+  unchanged?: boolean;
+  receipt: {
+    patchId: string;
+    environment: string;
+    role: string;
+    script: string;
+    host: string | null;
+    user: string | null;
+    finishedAt: string;
+    exitCode: number;
+    outcome: string;
+    recordId: string | null;
+    result: string | null;
+    verdict: 'success' | 'failed' | 'pending';
+    reason: string;
+    images: { service: string; oldRef: string; newRef: string }[];
+    envAdded: string[];
+    containers: number;
+  };
+  duplicate: { id: string; uploadedBy: string; createdAt: string } | null;
+  matches: { recordId: string; service: string; version: string; via: string; currentStatus: string; newStatus: 'SUCCESS' | 'FAILED' | null }[];
+  unmatchedImages: { service: string; ref: string; version: string | null }[];
+  canCreate: boolean;
+  updated?: any[];
+  created?: any[];
+}
+
 // Latest health report per environment + role + kind (with parsed content),
 // plus upload, history and raw-text access.
 export function useHealth(enabled: boolean) {
@@ -64,9 +94,17 @@ export function useHealth(enabled: boolean) {
     return (await res.json()).report as HealthReportMeta & { raw: string };
   }, []);
 
+  // Deployment receipts go to /api/receipts: preview (nothing written) shows
+  // which release records the receipt would close; apply writes it.
+  const receipt = useCallback(async (text: string, opts: { preview?: boolean; recordIds?: string[]; createServices?: string[] } = {}) => {
+    const res = await apiFetch('/api/receipts', { method: 'POST', body: JSON.stringify({ text, ...opts }) });
+    if (!res.ok) throw new Error(await apiErrorMessage(res, 'Could not read the receipt'));
+    return (await res.json()) as ReceiptResult;
+  }, []);
+
   return useMemo(
-    () => ({ reports, warning, isLoading, reload, upload, history, getReport }),
-    [reports, warning, isLoading, reload, upload, history, getReport]
+    () => ({ reports, warning, isLoading, reload, upload, history, getReport, receipt }),
+    [reports, warning, isLoading, reload, upload, history, getReport, receipt]
   );
 }
 

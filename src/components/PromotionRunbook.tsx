@@ -6,13 +6,16 @@ import { copyText, downloadText } from '../download';
 const btn =
   'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
 
-const ScriptBlock: React.FC<{ title: string; subtitle: string; script: string | null; fileName: string; missing: string }> = ({
+const ScriptBlock: React.FC<{ title: string; subtitle: string; script: string | null; fileName: string; missing: string; locked?: string | null }> = ({
   title,
   subtitle,
-  script,
+  script: realScript,
   fileName,
   missing,
+  locked = null,
 }) => {
+  // A locked block shows no script at all, so there is nothing to copy by accident.
+  const script = locked ? null : realScript;
   const [copied, setCopied] = useState(false);
   return (
     <section className="overflow-hidden rounded-xl border border-white/15 bg-surface-sunken">
@@ -47,7 +50,7 @@ const ScriptBlock: React.FC<{ title: string; subtitle: string; script: string | 
       {script ? (
         <pre className="max-h-[45vh] overflow-auto p-4 font-mono text-[11px] leading-5 text-emerald-100/90">{script}</pre>
       ) : (
-        <p className="p-4 text-xs text-amber-300">{missing}</p>
+        <p className="p-4 text-xs text-amber-300">{locked ? `Locked: ${locked}` : missing}</p>
       )}
     </section>
   );
@@ -56,7 +59,7 @@ const ScriptBlock: React.FC<{ title: string; subtitle: string; script: string | 
 // Two copy-paste scripts for promoting a release between environments:
 // Part 1 exports images on the source, Part 2 applies env keys and images
 // (via ./alara_server.sh patch) on the target.
-export const PromotionRunbook: React.FC<{ sourceEnv: string; targetEnv: string; plan: PromotionPlan }> = ({ sourceEnv, targetEnv, plan }) => {
+export const PromotionRunbook: React.FC<{ sourceEnv: string; targetEnv: string; plan: PromotionPlan; locked?: string | null }> = ({ sourceEnv, targetEnv, plan, locked = null }) => {
   const appends = plan.envAdds.filter((e) => e.status === 'append');
   const patchable = plan.images.filter((i) => !i.manual);
   const manualCount = plan.manual.length + plan.images.filter((i) => i.manual).length + plan.envAdds.filter((e) => e.status !== 'append').length;
@@ -91,8 +94,10 @@ export const PromotionRunbook: React.FC<{ sourceEnv: string; targetEnv: string; 
 
       <p className="text-[11px] text-zinc-400">
         Order: run Part 1 on {sourceEnv}, copy <span className="font-mono">alara/patches/export/{plan.patchId}/</span> to{' '}
-        <span className="font-mono">alara/patches/incoming/{plan.patchId}/</span> on {targetEnv} (WinSCP), then run Part 2 there. Both scripts
-        refuse to run on any other server. Secrets, changed values and new services are listed for you to handle by hand.
+        <span className="font-mono">alara/patches/incoming/{plan.patchId}/</span> on {targetEnv} (WinSCP), then run Part 2 there. Run each as{' '}
+        <span className="font-mono">bash part.sh --env {'<ENV>'}</span>, adding <span className="font-mono">--dry-run</span> first to see
+        what it would do. Each script asks the toolkit which server it is on and refuses any other. Secrets, changed values and new
+        services are listed for you to handle by hand.
       </p>
 
       <ScriptBlock
@@ -101,6 +106,7 @@ export const PromotionRunbook: React.FC<{ sourceEnv: string; targetEnv: string; 
         script={plan.sourceScript}
         fileName={`${base}_part1_source_export.sh`}
         missing="Not generated: see the message above."
+        locked={locked}
       />
       <ScriptBlock
         title={`Part 2: Target import (${targetEnv})`}
@@ -108,6 +114,7 @@ export const PromotionRunbook: React.FC<{ sourceEnv: string; targetEnv: string; 
         script={plan.targetScript}
         fileName={`${base}_part2_target_import.sh`}
         missing="Not generated: see the message above."
+        locked={locked}
       />
     </div>
   );

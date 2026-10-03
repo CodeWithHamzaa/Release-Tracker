@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { AddRecordForm } from './components/AddRecordForm';
-import { CatalogView } from './components/CatalogView';
+import { InfrastructureView } from './components/InfrastructureView';
 import { LoginView } from './components/LoginView';
 import { ReleaseRecord } from '@/lib/types';
 import { getSupabaseClient } from '@/lib/supabase';
@@ -12,7 +12,7 @@ import { apiFetch, apiErrorMessage } from './api';
 import { useCatalog, CatalogService } from './useCatalog';
 import { useServers } from './useServers';
 import { useConfigs, useComposeIndex } from './useConfigs';
-import { ConfigsView, ConfigFocus } from './components/ConfigsView';
+import { ConfigsView } from './components/ConfigsView';
 import { HealthView } from './components/HealthView';
 import { useHealth } from './useHealth';
 import { runningIndex } from '@/lib/healthModel';
@@ -201,7 +201,6 @@ export default function App() {
   const configs = useConfigs(signedIn);
   const composeIndex = useComposeIndex(configs);
   const health = useHealth(signedIn);
-  const [configFocus, setConfigFocus] = useState<ConfigFocus | null>(null);
 
   const [records, setRecords] = useState<ReleaseRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -330,7 +329,7 @@ export default function App() {
     await supabase?.auth.signOut();
   }, []);
 
-  // The catalog page lists config/services.json when there is no database.
+  // The Infrastructure page lists config/services.json when there is no database.
   const catalogServices = useMemo<CatalogService[]>(() => {
     if (catalog.source === 'database') return catalog.services;
     return Object.entries<string[]>(catalog.serverMap).flatMap(([server, names]) =>
@@ -352,12 +351,11 @@ export default function App() {
     setRecords((prev) => [...created, ...prev.filter((r) => !ids.has(r.id))]);
   }, []);
 
-  const handleEditVersion = useCallback((_env: string, _role: string, fileId: string, image: string | null) => {
-    setConfigFocus({ fileId, editAt: image ?? undefined });
-    setCurrentPath('/configs');
+  // A deployment receipt closed (or created) records: merge them in.
+  const handleReceiptApplied = useCallback((updated: ReleaseRecord[], created: ReleaseRecord[]) => {
+    const byId = new Map(updated.map((r) => [r.id, r]));
+    setRecords((prev) => [...created, ...prev.filter((r) => !created.some((c) => c.id === r.id)).map((r) => byId.get(r.id) ?? r)]);
   }, []);
-
-  const clearConfigFocus = useCallback(() => setConfigFocus(null), []);
 
   const handleRecordDeleted = useCallback((id: string) => {
     setRecords((prev) => prev.filter((r) => r.id !== id));
@@ -406,8 +404,8 @@ export default function App() {
             onSuccess={handleNewRecord}
             onCancel={() => setCurrentPath('/')}
           />
-        ) : currentPath === '/catalog' ? (
-          <CatalogView
+        ) : currentPath === '/infrastructure' ? (
+          <InfrastructureView
             services={catalogServices}
             editable={catalog.source === 'database'}
             warning={catalog.warning}
@@ -416,8 +414,6 @@ export default function App() {
             servers={registry.servers}
             serversWarning={registry.warning}
             onReloadServers={registry.reload}
-            composeIndex={composeIndex}
-            onEditVersion={handleEditVersion}
           />
         ) : currentPath === '/health' ? (
           <HealthView
@@ -426,14 +422,13 @@ export default function App() {
             servers={registry.servers}
             composeIndex={composeIndex}
             onReloadServers={registry.reload}
+            onReceiptApplied={handleReceiptApplied}
           />
         ) : currentPath === '/configs' ? (
           <ConfigsView
             configs={configs}
             servers={registry.servers}
             catalogServices={catalogServices}
-            focus={configFocus}
-            onFocusHandled={clearConfigFocus}
             onRecordsLogged={handleRecordsLogged}
           />
         ) : (

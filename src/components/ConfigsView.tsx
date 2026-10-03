@@ -38,11 +38,6 @@ import type { CatalogService } from '../useCatalog';
 export const CONFIG_ENVS = ['SIT', 'UAT', 'Prod'] as const;
 export const CONFIG_ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
 
-export interface ConfigFocus {
-  fileId: string;
-  editAt?: string; // text to place the cursor on when the editor opens (e.g. "image: x:1")
-}
-
 const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
 const inputClass =
   'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
@@ -225,22 +220,20 @@ const ImageChangesOffer: React.FC<{
 const FilePanel: React.FC<{
   file: ConfigFileMeta;
   configs: ConfigsApi;
-  editAt?: string;
   onClose: () => void;
   onImageChanges: (set: ImageChangeSet) => void;
-}> = ({ file, configs, editAt, onClose, onImageChanges }) => {
+}> = ({ file, configs, onClose, onImageChanges }) => {
   const [versions, setVersions] = useState<ConfigVersionMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(file.latest?.id ?? null);
   const [content, setContent] = useState<string | null>(null);
   const [prevContent, setPrevContent] = useState<string | null>(null);
-  const [mode, setMode] = useState<'view' | 'diff' | 'edit'>(editAt ? 'edit' : 'view');
+  const [mode, setMode] = useState<'view' | 'diff' | 'edit'>('view');
   const [reveal, setReveal] = useState(false);
   const [draft, setDraft] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const { getVersions, getContent } = configs;
   const loadVersions = useCallback(async () => {
@@ -254,12 +247,12 @@ const FilePanel: React.FC<{
     }
   }, [getVersions, file.id]);
 
-  // A different file (or an "edit version" jump): start fresh.
+  // A different file: start fresh.
   useEffect(() => {
-    setMode(editAt ? 'edit' : 'view');
+    setMode('view');
     setMessage(null);
     setError(null);
-  }, [file.id, editAt]);
+  }, [file.id]);
 
   // New latest version (after a save or upload): refresh history, show it.
   useEffect(() => {
@@ -288,18 +281,6 @@ const FilePanel: React.FC<{
       cancelled = true;
     };
   }, [selectedId, previous?.id, getContent]);
-
-  // Opened from the Catalog's "edit version": put the cursor on that line.
-  useEffect(() => {
-    if (mode !== 'edit' || !editAt || content === null || !editorRef.current) return;
-    const at = draft.indexOf(editAt);
-    if (at === -1) return;
-    const el = editorRef.current;
-    el.focus();
-    el.setSelectionRange(at, at + editAt.length);
-    const lineNo = draft.slice(0, at).split('\n').length;
-    el.scrollTop = Math.max(0, (lineNo - 5) * 20);
-  }, [mode, editAt, content]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveEdit = async () => {
     setBusy(true);
@@ -453,7 +434,6 @@ const FilePanel: React.FC<{
             Editing shows real values. Saving creates v{(versions[0]?.version ?? 0) + 1} in the tracker only; the server is not changed.
           </p>
           <textarea
-            ref={editorRef}
             aria-label="File content"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -716,27 +696,16 @@ export const ConfigsView: React.FC<{
   configs: ConfigsApi;
   servers: ServerNode[];
   catalogServices: CatalogService[];
-  focus: ConfigFocus | null;
-  onFocusHandled: () => void;
   onRecordsLogged: (records: ReleaseRecord[]) => void;
-}> = ({ configs, servers, catalogServices, focus, onFocusHandled, onRecordsLogged }) => {
+}> = ({ configs, servers, catalogServices, onRecordsLogged }) => {
   const [environment, setEnvironment] = useState<string>('SIT');
   const [role, setRole] = useState<string>(CONFIG_ROLES[0]);
   const [uploading, setUploading] = useState(false);
   const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
   const [offers, setOffers] = useState<ImageChangeSet[]>([]);
   const [openFileId, setOpenFileId] = useState<string | null>(null);
-  const [editAt, setEditAt] = useState<string | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!focus) return;
-    setOpenFileId(focus.fileId);
-    setEditAt(focus.editAt);
-    onFocusHandled();
-    setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-  }, [focus, onFocusHandled]);
 
   const fileAt = (env: string, r: string) => configs.files.filter((f) => f.environment === env && f.role === r);
   const expectedFor = (env: string, r: string) => {
@@ -923,7 +892,6 @@ export const ConfigsView: React.FC<{
                               type="button"
                               onClick={() => {
                                 setOpenFileId(f.id);
-                                setEditAt(undefined);
                                 setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
                               }}
                               title={f.latest ? `v${f.latest.version} · ${new Date(f.latest.createdAt).toLocaleString()} · ${f.latest.createdBy}` : undefined}
@@ -957,7 +925,6 @@ export const ConfigsView: React.FC<{
           <FilePanel
             file={openFile}
             configs={configs}
-            editAt={editAt}
             onClose={() => setOpenFileId(null)}
             onImageChanges={(set) => setOffers((prev) => [...prev, set])}
           />

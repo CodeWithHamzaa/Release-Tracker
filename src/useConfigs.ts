@@ -101,8 +101,8 @@ export function useConfigs(enabled: boolean) {
 export type ConfigsApi = ReturnType<typeof useConfigs>;
 
 // Latest stored compose file per role + environment, parsed into per-service
-// summaries (image, tag, ports...). Feeds the Catalog's per-environment
-// version chips. Recomputed when the file list changes.
+// summaries (image, tag, ports...). Feeds the Health page's
+// running-vs-vault version checks. Recomputed when the file list changes.
 export type ComposeIndex = Record<string, Record<string, { fileId: string; summaries: ComposeServiceSummary[] }>>;
 
 export function useComposeIndex(configs: ConfigsApi): ComposeIndex {

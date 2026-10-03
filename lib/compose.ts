@@ -1,7 +1,7 @@
 // docker-compose.yml parsing and host-port conflict detection.
 //
 // Pure functions with no Node or browser APIs, so the same code runs in the
-// Catalog page (preview while you paste) and in the API (re-validating what is
+// Infrastructure page (preview while you paste) and in the API (re-validating what is
 // saved). Only host-published ports matter for conflicts: `expose` and
 // container-only ports are listed but never clash on the host.
 
