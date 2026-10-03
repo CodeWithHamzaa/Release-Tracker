@@ -28,17 +28,17 @@ export const SyncLinesModal: React.FC<{ records: ReleaseRecord[]; onClose: () =>
         aria-modal="true"
         aria-labelledby="sync-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111111] shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-surface-raised shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-[#161618] px-6 py-4">
+        <div className="flex items-center justify-between border-b border-white/15 bg-surface-raised px-6 py-4">
           <div className="flex items-center gap-2">
             <ClipboardList className="h-5 w-5 text-emerald-400" />
             <div>
               <h2 id="sync-title" className="text-base font-bold text-white">Knowledge index §1.2 lines</h2>
-              <p className="text-xs text-zinc-400">SUCCESS and FAILED releases, newest first. PENDING is skipped.</p>
+              <p className="text-xs text-zinc-300">SUCCESS and FAILED releases, newest first. PENDING is skipped.</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Close">
+          <button onClick={onClose} className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -46,7 +46,7 @@ export const SyncLinesModal: React.FC<{ records: ReleaseRecord[]; onClose: () =>
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <label htmlFor="sync-since" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-300">
+              <label htmlFor="sync-since" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-200">
                 Since
               </label>
               <input
@@ -54,20 +54,20 @@ export const SyncLinesModal: React.FC<{ records: ReleaseRecord[]; onClose: () =>
                 type="date"
                 value={since}
                 onChange={(e) => setSince(e.target.value)}
-                className="rounded-xl border border-zinc-700/80 bg-[#1f1f23] px-3 py-2 text-sm text-white [color-scheme:dark]"
+                className="rounded-xl border border-zinc-700/80 bg-surface-overlay px-3 py-2 text-sm text-white [color-scheme:dark]"
               />
             </div>
-            <span className="pb-2 text-xs text-zinc-500">{lines.length} line(s)</span>
+            <span className="pb-2 text-xs text-zinc-400">{lines.length} line(s)</span>
           </div>
           <pre
             aria-label="Section 1.2 lines"
-            className="min-h-[120px] overflow-x-auto whitespace-pre rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-xs text-zinc-200"
+            className="min-h-[120px] overflow-x-auto whitespace-pre rounded-xl border border-white/15 bg-black/40 p-4 font-mono text-xs text-zinc-200"
           >
             {text || 'Nothing logged since this date.'}
           </pre>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-800 bg-[#161618] px-6 py-4">
+        <div className="flex items-center justify-end gap-2 border-t border-white/15 bg-surface-raised px-6 py-4">
           <button
             type="button"
             disabled={!text}

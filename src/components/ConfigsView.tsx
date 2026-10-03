@@ -43,18 +43,18 @@ export interface ConfigFocus {
   editAt?: string; // text to place the cursor on when the editor opens (e.g. "image: x:1")
 }
 
-const card = 'rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6';
+const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
 const inputClass =
-  'w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 const btn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
+  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
 const primaryBtn =
   'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50';
 const envLabel = (e: string) => e.toUpperCase();
 const isComposeName = (p: string) => /compose.*\.ya?ml$/i.test(p);
 
 const LABEL_STYLE: Record<DriftLabel, string> = {
-  same: 'border-white/10 text-zinc-400',
+  same: 'border-white/15 text-zinc-300',
   expected: 'border-sky-800 bg-sky-950/40 text-sky-300',
   encrypted: 'border-violet-800 bg-violet-950/40 text-violet-300',
   differs: 'border-amber-700 bg-amber-950/40 text-amber-300',
@@ -88,12 +88,12 @@ export function maskLine(line: string): { text: string; masked: boolean } {
 const CodeView: React.FC<{ content: string; reveal: boolean }> = ({ content, reveal }) => {
   const lines = content.replace(/\n$/, '').split('\n');
   return (
-    <pre className="max-h-[60vh] overflow-auto rounded-xl border border-white/10 bg-black/40 py-3 font-mono text-xs leading-5 text-zinc-200">
+    <pre className="max-h-[60vh] overflow-auto rounded-xl border border-white/15 bg-black/40 py-3 font-mono text-xs leading-5 text-zinc-200">
       {lines.map((line, i) => {
         const shown = reveal ? { text: line, masked: false } : maskLine(line);
         return (
           <div key={i} className="flex">
-            <span className="w-12 flex-shrink-0 select-none pr-3 text-right text-zinc-600">{i + 1}</span>
+            <span className="w-12 flex-shrink-0 select-none pr-3 text-right text-zinc-400">{i + 1}</span>
             <span className={`whitespace-pre pr-4 ${shown.masked ? 'text-violet-300' : ''}`}>{shown.text || ' '}</span>
           </div>
         );
@@ -107,14 +107,14 @@ const DiffView: React.FC<{ before: string; after: string; reveal: boolean; label
   const changed = lines.filter((l) => l.type !== 'same').length;
   return (
     <div>
-      <p className="mb-2 text-xs text-zinc-500">
+      <p className="mb-2 text-xs text-zinc-400">
         <span className="text-rose-300">− {labels[0]}</span> · <span className="text-emerald-300">+ {labels[1]}</span> · {changed} changed line(s)
       </p>
-      <pre className="max-h-[60vh] overflow-auto rounded-xl border border-white/10 bg-black/40 py-3 font-mono text-xs leading-5">
+      <pre className="max-h-[60vh] overflow-auto rounded-xl border border-white/15 bg-black/40 py-3 font-mono text-xs leading-5">
         {lines.map((l, i) => {
           const text = reveal ? l.text : maskLine(l.text).text;
           const style =
-            l.type === 'add' ? 'bg-emerald-950/50 text-emerald-200' : l.type === 'del' ? 'bg-rose-950/50 text-rose-200' : 'text-zinc-500';
+            l.type === 'add' ? 'bg-emerald-950/50 text-emerald-200' : l.type === 'del' ? 'bg-rose-950/50 text-rose-200' : 'text-zinc-400';
           return (
             <div key={i} className={`whitespace-pre px-3 ${style}`}>
               {l.type === 'add' ? '+ ' : l.type === 'del' ? '− ' : '  '}
@@ -365,17 +365,17 @@ const FilePanel: React.FC<{
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-emerald-400" />
           <h2 className="font-mono text-sm font-semibold text-white">{file.path}</h2>
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-zinc-400">
             {envLabel(file.environment)} / {file.role}
           </span>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close file" className="rounded-md p-1 text-zinc-400 hover:text-white">
+        <button type="button" onClick={onClose} aria-label="Close file" className="rounded-md p-1 text-zinc-300 hover:text-white">
           <X className="h-4 w-4" />
         </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-zinc-400">
+        <label className="flex items-center gap-1.5 text-xs text-zinc-300">
           <History className="h-3.5 w-3.5" />
           <select
             aria-label="Version"
@@ -384,7 +384,7 @@ const FilePanel: React.FC<{
               setSelectedId(e.target.value);
               setMode('view');
             }}
-            className="rounded-lg border border-zinc-700/80 bg-[#1f1f23] px-2 py-1 text-xs text-white"
+            className="rounded-lg border border-zinc-700/80 bg-surface-overlay px-2 py-1 text-xs text-white"
           >
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
@@ -438,7 +438,7 @@ const FilePanel: React.FC<{
       {message && <p role="status" className="text-xs text-emerald-300">{message}</p>}
 
       {content === null && !error && (
-        <p className="flex items-center gap-2 text-xs text-zinc-500">
+        <p className="flex items-center gap-2 text-xs text-zinc-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
         </p>
       )}
@@ -545,7 +545,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
     if (!v) return <span className="text-rose-400/80">— missing</span>;
     if (v.encrypted) return <span className="text-violet-300">ENC[…]</span>;
     const text = !reveal && isSecretKey(key) ? '••••••••' : v.value;
-    return <span className="break-all">{text || <span className="text-zinc-600">(empty)</span>}</span>;
+    return <span className="break-all">{text || <span className="text-zinc-400">(empty)</span>}</span>;
   };
 
   return (
@@ -555,7 +555,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
         <h2 className="text-sm font-semibold text-white">Compare across environments</h2>
       </div>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-zinc-400">
+        <label className="text-xs text-zinc-300">
           Role
           <select aria-label="Compare role" value={role} onChange={(e) => setRole(e.target.value)} className={`${inputClass} mt-1 w-48`}>
             {CONFIG_ROLES.map((r) => (
@@ -563,7 +563,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
             ))}
           </select>
         </label>
-        <label className="text-xs text-zinc-400">
+        <label className="text-xs text-zinc-300">
           File
           <select aria-label="Compare file" value={path} onChange={(e) => setPath(e.target.value)} className={`${inputClass} mt-1 w-56 font-mono`}>
             {paths.length === 0 && <option value="">(no files for this role)</option>}
@@ -572,7 +572,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-1.5 pb-2 text-xs text-zinc-400">
+        <label className="flex items-center gap-1.5 pb-2 text-xs text-zinc-300">
           <input type="checkbox" className="accent-emerald-500" checked={onlyDiffs} onChange={(e) => setOnlyDiffs(e.target.checked)} />
           Only differences
         </label>
@@ -584,28 +584,28 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
 
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
       {path && !loaded && !error && (
-        <p className="flex items-center gap-2 text-xs text-zinc-500">
+        <p className="flex items-center gap-2 text-xs text-zinc-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
         </p>
       )}
       {loaded && present.length < 2 && (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           Upload {path} for at least two environments to compare. Present in: {present.map(envLabel).join(', ') || 'none'}.
         </p>
       )}
 
       {loaded && present.length >= 2 && isEnvFileName(path) && (
         <>
-          <p className="flex flex-wrap gap-2 text-xs text-zinc-400">
+          <p className="flex flex-wrap gap-2 text-xs text-zinc-300">
             {Object.entries(counts(envRows.map((r) => r.label))).map(([l, n]) => (
               <span key={l} className="flex items-center gap-1">
                 <Badge label={l as DriftLabel} /> {n}
               </span>
             ))}
           </p>
-          <div className="overflow-x-auto rounded-xl border border-white/10">
+          <div className="overflow-x-auto rounded-xl border border-white/15">
             <table className="w-full min-w-[720px] text-left text-xs">
-              <thead className="bg-white/[0.03] text-zinc-400">
+              <thead className="bg-white/[0.03] text-zinc-300">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Key</th>
                   {CONFIG_ENVS.map((e) => (
@@ -614,15 +614,15 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
                   <th className="px-3 py-2 font-semibold">Drift</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 font-mono">
+              <tbody className="divide-y divide-white/10 font-mono">
                 {envRows
                   .filter((r) => !onlyDiffs || (r.label !== 'same' && r.label !== 'expected' && r.label !== 'encrypted'))
                   .map((r) => (
                     <tr key={r.key}>
                       <td className="px-3 py-1.5 text-zinc-200">{r.key}</td>
                       {CONFIG_ENVS.map((e) => (
-                        <td key={e} className="max-w-[260px] px-3 py-1.5 text-zinc-300">
-                          {contents[e] === null ? <span className="text-zinc-600">no file</span> : shown(r.values[e], r.key)}
+                        <td key={e} className="max-w-[260px] px-3 py-1.5 text-zinc-200">
+                          {contents[e] === null ? <span className="text-zinc-400">no file</span> : shown(r.values[e], r.key)}
                         </td>
                       ))}
                       <td className="px-3 py-1.5">
@@ -637,9 +637,9 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
       )}
 
       {loaded && present.length >= 2 && isComposeName(path) && (
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto rounded-xl border border-white/15">
           <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-400">
+            <thead className="bg-white/[0.03] text-zinc-300">
               <tr>
                 <th className="px-3 py-2 font-semibold">Service</th>
                 {CONFIG_ENVS.map((e) => (
@@ -651,7 +651,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
                 <th className="px-3 py-2 font-semibold">Volumes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {composeRows
                 .filter((r) => !onlyDiffs || Object.values(r.labels).some((l) => l !== 'same'))
                 .map((r) => (
@@ -660,8 +660,8 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
                     {CONFIG_ENVS.map((e) => {
                       const s = r.perEnv[e];
                       return (
-                        <td key={e} className="px-3 py-1.5 font-mono text-zinc-300" title={s ? `${s.image}\nports: ${s.ports || '—'}` : undefined}>
-                          {contents[e] === null ? <span className="text-zinc-600">no file</span> : s ? s.tag ?? '—' : <span className="text-rose-400/80">missing</span>}
+                        <td key={e} className="px-3 py-1.5 font-mono text-zinc-200" title={s ? `${s.image}\nports: ${s.ports || '—'}` : undefined}>
+                          {contents[e] === null ? <span className="text-zinc-400">no file</span> : s ? s.tag ?? '—' : <span className="text-rose-400/80">missing</span>}
                         </td>
                       );
                     })}
@@ -677,7 +677,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
       )}
 
       {loaded && present.length >= 2 && (
-        <details className="text-xs text-zinc-400">
+        <details className="text-xs text-zinc-300">
           <summary className="cursor-pointer select-none">Raw line diff</summary>
           <div className="mt-3 space-y-3">
             <div className="flex items-center gap-2">
@@ -687,7 +687,7 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
                   aria-label={i === 0 ? 'Diff from' : 'Diff to'}
                   value={rawPair[i]}
                   onChange={(e) => setRawPair((p) => (i === 0 ? [e.target.value, p[1]] : [p[0], e.target.value]))}
-                  className="rounded-lg border border-zinc-700/80 bg-[#1f1f23] px-2 py-1 text-xs text-white"
+                  className="rounded-lg border border-zinc-700/80 bg-surface-overlay px-2 py-1 text-xs text-white"
                 >
                   {present.map((e) => (
                     <option key={e} value={e}>{envLabel(e)}</option>
@@ -811,7 +811,7 @@ export const ConfigsView: React.FC<{
       <div className="flex flex-wrap items-center gap-2">
         <FolderLock className="h-5 w-5 text-emerald-400" />
         <h1 className="text-lg font-semibold text-white">Config Vault</h1>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-zinc-400">
           {configs.files.length} files · every save is kept as a version · the tracker never changes a server
         </span>
       </div>
@@ -833,7 +833,7 @@ export const ConfigsView: React.FC<{
           Files are stored exactly as uploaded, plaintext secrets included, behind your login. Secrets are only blurred on screen.
         </p>
         <div className="grid gap-3 sm:grid-cols-[140px_220px_1fr]">
-          <label className="text-xs text-zinc-400">
+          <label className="text-xs text-zinc-300">
             Environment
             <select aria-label="Upload environment" value={environment} onChange={(e) => setEnvironment(e.target.value)} className={`${inputClass} mt-1`}>
               {CONFIG_ENVS.map((e) => (
@@ -841,7 +841,7 @@ export const ConfigsView: React.FC<{
               ))}
             </select>
           </label>
-          <label className="text-xs text-zinc-400">
+          <label className="text-xs text-zinc-300">
             Role
             <select aria-label="Upload role" value={role} onChange={(e) => setRole(e.target.value)} className={`${inputClass} mt-1`}>
               {CONFIG_ROLES.map((r) => (
@@ -861,7 +861,7 @@ export const ConfigsView: React.FC<{
               upload(e.dataTransfer.files);
             }}
             className={`mt-5 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-3 text-xs ${
-              dragging ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200' : 'border-zinc-700 text-zinc-400 hover:border-zinc-500'
+              dragging ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200' : 'border-zinc-700 text-zinc-300 hover:border-zinc-500'
             }`}
           >
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -878,7 +878,7 @@ export const ConfigsView: React.FC<{
             />
           </label>
         </div>
-        <p className="text-[11px] text-zinc-500">
+        <p className="text-[11px] text-zinc-400">
           Tip: dot-files like .env_fbl may be hidden in the Windows picker; drag them from WinSCP or Explorer instead. The file name is kept as-is.
         </p>
         {results.length > 0 && (
@@ -897,9 +897,9 @@ export const ConfigsView: React.FC<{
       {/* Files grid */}
       <section className={`${card} space-y-3`}>
         <h2 className="text-sm font-semibold text-white">Files by server</h2>
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto rounded-xl border border-white/15">
           <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-400">
+            <thead className="bg-white/[0.03] text-zinc-300">
               <tr>
                 <th className="px-3 py-2 font-semibold">Role</th>
                 {CONFIG_ENVS.map((e) => (
@@ -907,7 +907,7 @@ export const ConfigsView: React.FC<{
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {CONFIG_ROLES.map((r) => (
                 <tr key={r}>
                   <td className="px-3 py-2 align-top font-semibold text-zinc-200">{r}</td>
@@ -930,14 +930,14 @@ export const ConfigsView: React.FC<{
                               className={`rounded-md border px-1.5 py-0.5 font-mono ${
                                 openFileId === f.id
                                   ? 'border-emerald-600 bg-emerald-950/50 text-emerald-200'
-                                  : 'border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/30'
+                                  : 'border-white/15 bg-white/[0.03] text-zinc-200 hover:border-white/30'
                               }`}
                             >
-                              {f.path} <span className="text-zinc-500">v{f.latest?.version}</span>
+                              {f.path} <span className="text-zinc-400">v{f.latest?.version}</span>
                             </button>
                           ))}
                           {missing.map((p) => (
-                            <span key={p} title="Expected for this role (server registry) but not uploaded" className="rounded-md border border-dashed border-zinc-700 px-1.5 py-0.5 font-mono text-zinc-600">
+                            <span key={p} title="Expected for this role (server registry) but not uploaded" className="rounded-md border border-dashed border-zinc-700 px-1.5 py-0.5 font-mono text-zinc-400">
                               {p}
                             </span>
                           ))}

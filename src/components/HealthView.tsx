@@ -30,11 +30,11 @@ const ENVS = ['SIT', 'UAT', 'Prod'] as const;
 const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
 const SNAPSHOT_ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Chat-Service'] as const; // DATABASE is out of the snapshot tool's scope
 
-const card = 'rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6';
+const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
 const inputClass =
-  'w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 const btn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
+  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
 const primaryBtn =
   'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50';
 const envLabel = (e: string) => e.toUpperCase();
@@ -51,7 +51,7 @@ const Pill: React.FC<{ tone: 'ok' | 'warn' | 'bad' | 'info' | 'muted'; children:
     warn: 'border-amber-700 bg-amber-950/40 text-amber-300',
     bad: 'border-rose-800 bg-rose-950/40 text-rose-300',
     info: 'border-sky-800 bg-sky-950/40 text-sky-300',
-    muted: 'border-white/10 text-zinc-400',
+    muted: 'border-white/15 text-zinc-300',
   }[tone];
   return (
     <span title={title} className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${style}`}>
@@ -158,7 +158,7 @@ const ServerDetail: React.FC<{
         <h2 className="text-sm font-semibold text-white">
           {envLabel(environment)} / {role}
         </h2>
-        <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-400 hover:text-white">
+        <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-zinc-300 hover:text-white">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -167,20 +167,20 @@ const ServerDetail: React.FC<{
         {(['status', 'snapshot', 'doctor'] as const).map((kind) => {
           const r = h.reports[kind];
           return (
-            <div key={kind} className="flex items-center gap-2 rounded-lg border border-white/10 px-2.5 py-1.5">
-              <span className="font-semibold text-zinc-300">{kind}</span>
+            <div key={kind} className="flex items-center gap-2 rounded-lg border border-white/15 px-2.5 py-1.5">
+              <span className="font-semibold text-zinc-200">{kind}</span>
               {r ? (
                 <>
                   <span className={`rounded border px-1 text-[10px] ${AGE_STYLE[ageLevel(r.reportedAt)]}`}>{ageText(r.reportedAt)}</span>
-                  <button type="button" className="text-zinc-400 hover:text-white" onClick={() => showRaw(r.id, `${kind} · ${new Date(r.reportedAt).toLocaleString()}`)}>
+                  <button type="button" className="text-zinc-300 hover:text-white" onClick={() => showRaw(r.id, `${kind} · ${new Date(r.reportedAt).toLocaleString()}`)}>
                     <FileText className="h-3.5 w-3.5" />
                   </button>
-                  <button type="button" className="text-zinc-400 hover:text-white" onClick={() => showHistory(kind)} aria-label={`${kind} history`}>
+                  <button type="button" className="text-zinc-300 hover:text-white" onClick={() => showHistory(kind)} aria-label={`${kind} history`}>
                     <History className="h-3.5 w-3.5" />
                   </button>
                 </>
               ) : (
-                <span className="text-zinc-600">none</span>
+                <span className="text-zinc-400">none</span>
               )}
             </div>
           );
@@ -189,16 +189,16 @@ const ServerDetail: React.FC<{
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
 
       {hist && (
-        <div className="rounded-xl border border-white/10 p-3 text-xs">
+        <div className="rounded-xl border border-white/15 p-3 text-xs">
           <div className="mb-2 flex items-center justify-between">
-            <span className="font-semibold text-zinc-300">{hist.kind} history</span>
-            <button type="button" onClick={() => setHist(null)} aria-label="Close history" className="text-zinc-500 hover:text-white">
+            <span className="font-semibold text-zinc-200">{hist.kind} history</span>
+            <button type="button" onClick={() => setHist(null)} aria-label="Close history" className="text-zinc-400 hover:text-white">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
           <ul className="space-y-1">
             {hist.items.map((it) => (
-              <li key={it.id} className="flex items-center gap-2 text-zinc-400">
+              <li key={it.id} className="flex items-center gap-2 text-zinc-300">
                 <span className="font-mono">{new Date(it.reportedAt).toLocaleString()}</span>
                 <span>· {it.uploadedBy}</span>
                 <button type="button" className="text-emerald-400 hover:underline" onClick={() => showRaw(it.id, `${hist.kind} · ${new Date(it.reportedAt).toLocaleString()}`)}>
@@ -212,13 +212,13 @@ const ServerDetail: React.FC<{
 
       {raw && (
         <div>
-          <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
+          <div className="mb-1 flex items-center justify-between text-xs text-zinc-300">
             <span>{raw.title}</span>
             <button type="button" onClick={() => setRaw(null)} aria-label="Close raw" className="hover:text-white">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <pre className="max-h-[50vh] overflow-auto rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-[11px] leading-5 text-zinc-300">
+          <pre className="max-h-[50vh] overflow-auto rounded-xl border border-white/15 bg-black/40 p-3 font-mono text-[11px] leading-5 text-zinc-200">
             {raw.text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')}
           </pre>
         </div>
@@ -226,12 +226,12 @@ const ServerDetail: React.FC<{
 
       {h.containers.length > 0 && (
         <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Containers <span className="font-normal normal-case text-zinc-600">(from {h.containersFrom})</span>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+            Containers <span className="font-normal normal-case text-zinc-400">(from {h.containersFrom})</span>
           </h3>
-          <div className="overflow-x-auto rounded-xl border border-white/10">
+          <div className="overflow-x-auto rounded-xl border border-white/15">
             <table className="w-full min-w-[640px] text-left text-xs">
-              <thead className="bg-white/[0.03] text-zinc-400">
+              <thead className="bg-white/[0.03] text-zinc-300">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Container</th>
                   <th className="px-3 py-2 font-semibold">Image</th>
@@ -239,13 +239,13 @@ const ServerDetail: React.FC<{
                   <th className="px-3 py-2 font-semibold">Ports</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 font-mono">
+              <tbody className="divide-y divide-white/10 font-mono">
                 {h.containers.map((c) => (
                   <tr key={c.name}>
                     <td className="px-3 py-1.5 text-zinc-200">{c.name}</td>
-                    <td className="break-all px-3 py-1.5 text-zinc-400">{c.image}</td>
+                    <td className="break-all px-3 py-1.5 text-zinc-300">{c.image}</td>
                     <td className={`px-3 py-1.5 ${statusTone(c)}`}>{c.status}</td>
-                    <td className="px-3 py-1.5 text-zinc-500">{c.ports || '—'}</td>
+                    <td className="px-3 py-1.5 text-zinc-400">{c.ports || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -256,10 +256,10 @@ const ServerDetail: React.FC<{
 
       {checks.length > 0 && (
         <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Version check</h3>
-          <div className="overflow-x-auto rounded-xl border border-white/10">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-300">Version check</h3>
+          <div className="overflow-x-auto rounded-xl border border-white/15">
             <table className="w-full min-w-[560px] text-left text-xs">
-              <thead className="bg-white/[0.03] text-zinc-400">
+              <thead className="bg-white/[0.03] text-zinc-300">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Service</th>
                   <th className="px-3 py-2 font-semibold">Running</th>
@@ -267,20 +267,20 @@ const ServerDetail: React.FC<{
                   <th className="px-3 py-2 font-semibold">Config vault</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 font-mono">
+              <tbody className="divide-y divide-white/10 font-mono">
                 {checks.map((c) => (
                   <tr key={c.container}>
                     <td className="px-3 py-1.5 text-zinc-200">
                       {c.service}
-                      {c.service !== c.container && <span className="text-zinc-600"> ({c.container})</span>}
+                      {c.service !== c.container && <span className="text-zinc-400"> ({c.container})</span>}
                     </td>
                     <td className="px-3 py-1.5 text-zinc-200">{c.running ?? '—'}</td>
-                    <td className={`px-3 py-1.5 ${c.recordMismatch ? 'text-amber-300' : 'text-zinc-400'}`}>
-                      {c.recorded ?? <span className="text-zinc-600">no record</span>}
+                    <td className={`px-3 py-1.5 ${c.recordMismatch ? 'text-amber-300' : 'text-zinc-300'}`}>
+                      {c.recorded ?? <span className="text-zinc-400">no record</span>}
                       {c.recordMismatch && ' ≠ running'}
                     </td>
-                    <td className={`px-3 py-1.5 ${c.vaultMismatch ? 'text-amber-300' : 'text-zinc-400'}`}>
-                      {c.vault ?? <span className="text-zinc-600">—</span>}
+                    <td className={`px-3 py-1.5 ${c.vaultMismatch ? 'text-amber-300' : 'text-zinc-300'}`}>
+                      {c.vault ?? <span className="text-zinc-400">—</span>}
                       {c.vaultMismatch && ' ≠ running'}
                     </td>
                   </tr>
@@ -295,22 +295,22 @@ const ServerDetail: React.FC<{
         <div className="grid gap-3 text-xs sm:grid-cols-2">
           {h.envFiles.length > 0 && (
             <div className="space-y-1">
-              <h3 className="font-semibold uppercase tracking-wider text-zinc-400">Env files</h3>
+              <h3 className="font-semibold uppercase tracking-wider text-zinc-300">Env files</h3>
               {h.envFiles.map((f) => (
-                <div key={f.file} className="font-mono text-zinc-300">
+                <div key={f.file} className="font-mono text-zinc-200">
                   {f.file}:{' '}
                   <span className={f.state === 'encrypted' ? 'text-emerald-300' : f.state === 'missing' ? 'text-rose-300' : 'text-amber-300'}>
                     {f.state === 'encrypted' ? `encrypted (${f.encryptedValues} values)` : f.state === 'missing' ? 'MISSING' : 'NOT encrypted'}
                   </span>
                 </div>
               ))}
-              {h.masterKey && <div className="text-zinc-400">Master key: {h.masterKey}</div>}
-              {h.keyState && <div className="text-zinc-400">Key: {h.keyState}</div>}
+              {h.masterKey && <div className="text-zinc-300">Master key: {h.masterKey}</div>}
+              {h.keyState && <div className="text-zinc-300">Key: {h.keyState}</div>}
             </div>
           )}
           {h.doctorProblems.length > 0 && (
             <div className="space-y-1">
-              <h3 className="font-semibold uppercase tracking-wider text-zinc-400">Doctor findings</h3>
+              <h3 className="font-semibold uppercase tracking-wider text-zinc-300">Doctor findings</h3>
               {h.doctorProblems.map((p) => (
                 <div key={p} className="font-mono text-rose-300">{p}</div>
               ))}
@@ -367,24 +367,24 @@ const PromotionModal: React.FC<{
         aria-modal="true"
         aria-labelledby="promotion-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111111] shadow-2xl"
+        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-surface-raised shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-[#161618] px-6 py-4">
+        <div className="flex items-center justify-between border-b border-white/15 bg-surface-raised px-6 py-4">
           <div className="flex items-center gap-2">
             <FileTerminal className="h-5 w-5 text-emerald-400" />
             <div>
               <h2 id="promotion-title" className="text-base font-bold text-white">Promotion scripts</h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-zinc-300">
                 {role} · {envLabel(sourceEnv)} → {envLabel(targetEnv)}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Close">
+          <button onClick={onClose} className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <label className="block max-w-sm text-xs text-zinc-400">
+          <label className="block max-w-sm text-xs text-zinc-300">
             PATCH_ID (folder name for the image tars)
             <input
               aria-label="Promotion PATCH_ID"
@@ -426,7 +426,7 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
     items.length > 0 && (
       <div>
         <h4 className={`mb-1 text-xs font-bold ${tone}`}>{title}</h4>
-        <ol className="list-decimal space-y-1 pl-5 text-xs text-zinc-300">
+        <ol className="list-decimal space-y-1 pl-5 text-xs text-zinc-200">
           {items.map((t, i) => (
             <li key={i} className="whitespace-pre-wrap break-words font-mono">{t}</li>
           ))}
@@ -439,33 +439,33 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
       <div className="flex items-center gap-2">
         <ClipboardCheck className="h-4 w-4 text-emerald-400" />
         <h2 className="text-sm font-semibold text-white">Release checklist</h2>
-        <span className="text-xs text-zinc-500">same rules as ./alara_server.sh compare, from the latest snapshots</span>
+        <span className="text-xs text-zinc-400">same rules as ./alara_server.sh compare, from the latest snapshots</span>
       </div>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-zinc-400">
+        <label className="text-xs text-zinc-300">
           Role
           <select aria-label="Checklist role" value={role} onChange={(e) => setRole(e.target.value)} className={`${inputClass} mt-1 w-48`}>
             {SNAPSHOT_ROLES.map((r) => <option key={r}>{r}</option>)}
           </select>
         </label>
-        <label className="text-xs text-zinc-400">
+        <label className="text-xs text-zinc-300">
           From
           <select aria-label="Checklist source" value={source} onChange={(e) => setSource(e.target.value)} className={`${inputClass} mt-1 w-28`}>
             {ENVS.map((e) => <option key={e} value={e}>{envLabel(e)}</option>)}
           </select>
         </label>
-        <label className="text-xs text-zinc-400">
+        <label className="text-xs text-zinc-300">
           To
           <select aria-label="Checklist target" value={target} onChange={(e) => setTarget(e.target.value)} className={`${inputClass} mt-1 w-28`}>
             {ENVS.map((e) => <option key={e} value={e}>{envLabel(e)}</option>)}
           </select>
         </label>
-        <label className="min-w-[200px] flex-1 text-xs text-zinc-400">
+        <label className="min-w-[200px] flex-1 text-xs text-zinc-300">
           Ignore keys (optional, one per line)
           <textarea aria-label="Ignore keys" value={ignore} onChange={(e) => setIgnore(e.target.value)} rows={1} className={`${inputClass} mt-1 font-mono text-xs`} />
         </label>
       </div>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-zinc-400">
         {src ? `From: ${envLabel(source)} snapshot ${ageText(src.reportedAt)}` : `No ${envLabel(source)} snapshot for ${role}`} ·{' '}
         {tgt ? `To: ${envLabel(target)} snapshot ${ageText(tgt.reportedAt)}` : `No ${envLabel(target)} snapshot for ${role}`}
       </p>
@@ -550,18 +550,18 @@ const ToolkitPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[
       <div className="flex items-center gap-2">
         <Wrench className="h-4 w-4 text-emerald-400" />
         <h2 className="text-sm font-semibold text-white">Toolkit versions</h2>
-        <span className="text-xs text-zinc-500">alara_server.sh version from the latest doctor output</span>
+        <span className="text-xs text-zinc-400">alara_server.sh version from the latest doctor output</span>
       </div>
       {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
-      <div className="overflow-x-auto rounded-xl border border-white/10">
+      <div className="overflow-x-auto rounded-xl border border-white/15">
         <table className="w-full min-w-[560px] text-left text-xs">
-          <thead className="bg-white/[0.03] text-zinc-400">
+          <thead className="bg-white/[0.03] text-zinc-300">
             <tr>
               <th className="px-3 py-2 font-semibold">Role</th>
               {ENVS.map((e) => <th key={e} className="px-3 py-2 font-semibold">{envLabel(e)}</th>)}
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
+          <tbody className="divide-y divide-white/10">
             {ROLES.map((role) => (
               <tr key={role}>
                 <td className="px-3 py-2 font-semibold text-zinc-200">{role}</td>
@@ -575,7 +575,7 @@ const ToolkitPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[
                       {version ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-zinc-200">{version}</span>
-                          <span className="text-[10px] text-zinc-600">{ageText(d!.reportedAt)}</span>
+                          <span className="text-[10px] text-zinc-400">{ageText(d!.reportedAt)}</span>
                           {server && inRegistry !== version && (
                             <button type="button" className={btn} disabled={busy === server.id} onClick={() => save(server, version)}>
                               {busy === server.id && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -584,7 +584,7 @@ const ToolkitPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[
                           )}
                         </div>
                       ) : (
-                        <span className="text-zinc-600">—{inRegistry ? ` (registry: ${inRegistry})` : ''}</span>
+                        <span className="text-zinc-400">—{inRegistry ? ` (registry: ${inRegistry})` : ''}</span>
                       )}
                     </td>
                   );
@@ -641,9 +641,9 @@ export const HealthView: React.FC<{
       <div className="flex flex-wrap items-center gap-2">
         <Activity className="h-5 w-5 text-emerald-400" />
         <h1 className="text-lg font-semibold text-white">Server Health</h1>
-        <span className="text-xs text-zinc-500">from ALARA toolkit output you bring out of the air gap · nothing connects to the servers</span>
+        <span className="text-xs text-zinc-400">from ALARA toolkit output you bring out of the air gap · nothing connects to the servers</span>
       </div>
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-zinc-400">
         Parsers built from alara_server.sh v2.6, alara_release_snapshot.sh v2.0 and alara_release_compare.sh v2.1 (unverified against a
         real server's output until one is uploaded).
       </p>
@@ -674,12 +674,12 @@ export const HealthView: React.FC<{
               uploadFiles(e.dataTransfer.files);
             }}
             className={`flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-3 text-center text-xs ${
-              dragging ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200' : 'border-zinc-700 text-zinc-400 hover:border-zinc-500'
+              dragging ? 'border-emerald-500 bg-emerald-950/30 text-emerald-200' : 'border-zinc-700 text-zinc-300 hover:border-zinc-500'
             }`}
           >
             {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
             Drop .snapshot files (from alara/snapshots/) or saved status/doctor output, or click to choose
-            <span className="text-zinc-600">Environment and role are read from the file itself.</span>
+            <span className="text-zinc-400">Environment and role are read from the file itself.</span>
             <input
               type="file"
               multiple
@@ -728,15 +728,15 @@ export const HealthView: React.FC<{
       {/* Board */}
       <section className={`${card} space-y-3`}>
         <h2 className="text-sm font-semibold text-white">Servers</h2>
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto rounded-xl border border-white/15">
           <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-400">
+            <thead className="bg-white/[0.03] text-zinc-300">
               <tr>
                 <th className="px-3 py-2 font-semibold">Role</th>
                 {ENVS.map((e) => <th key={e} className="px-3 py-2 font-semibold">{envLabel(e)}</th>)}
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {ROLES.map((role) => (
                 <tr key={role}>
                   <td className="px-3 py-3 align-top font-semibold text-zinc-200">{role}</td>
@@ -750,12 +750,12 @@ export const HealthView: React.FC<{
                             type="button"
                             aria-label={`${envLabel(env)} ${role} details`}
                             onClick={() => setSelected(isSel ? null : { environment: env, role })}
-                            className={`w-full rounded-lg border p-2 text-left transition-colors ${isSel ? 'border-emerald-600 bg-emerald-950/20' : 'border-transparent hover:border-white/10'}`}
+                            className={`w-full rounded-lg border p-2 text-left transition-colors ${isSel ? 'border-emerald-600 bg-emerald-950/20' : 'border-transparent hover:border-white/15'}`}
                           >
                             <CellSummary h={h} />
                           </button>
                         ) : (
-                          <span className="text-zinc-600">no reports</span>
+                          <span className="text-zinc-400">no reports</span>
                         )}
                       </td>
                     );

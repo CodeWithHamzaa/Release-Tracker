@@ -13,15 +13,15 @@ const StatCard: React.FC<{
   icon: React.ElementType;
   accent: string;
 }> = ({ label, value, hint, icon: Icon, accent }) => (
-  <div className="rounded-xl border border-white/5 bg-[#111111] p-4 transition-colors hover:border-white/20">
+  <div className="rounded-xl border border-white/10 bg-surface-raised p-4 transition-colors hover:border-white/30">
     <div className="flex items-center justify-between">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
         {label}
       </span>
       <Icon className={`h-4 w-4 ${accent}`} />
     </div>
     <p className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${accent}`}>{value}</p>
-    <p className="mt-0.5 text-xs text-zinc-600">{hint}</p>
+    <p className="mt-0.5 text-xs text-zinc-400">{hint}</p>
   </div>
 );
 

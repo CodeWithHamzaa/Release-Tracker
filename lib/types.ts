@@ -82,6 +82,7 @@ export interface CreateBatchReleaseInput {
   configDetails?: string | null;
   hasCommands?: boolean;
   commandDetails?: string | null;
-  note?: string | null;
+  /** Mandatory: Release Notes / Status Update Notes. */
+  note: string;
   services: BatchServiceInput[];
 }

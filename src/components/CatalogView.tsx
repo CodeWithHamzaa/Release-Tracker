@@ -37,11 +37,11 @@ interface CatalogViewProps {
 const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
 
 const inputClass =
-  'w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
-const labelClass = 'block text-xs font-bold uppercase tracking-wider text-zinc-300 mb-1.5';
-const cardClass = 'rounded-2xl border border-white/10 bg-white/[0.02]';
+  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+const labelClass = 'block text-xs font-bold uppercase tracking-wider text-zinc-200 mb-1.5';
+const cardClass = 'rounded-2xl border border-white/15 bg-white/[0.02]';
 const buttonClass =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white disabled:opacity-50';
+  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-50';
 const primaryButtonClass =
   'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50';
 
@@ -208,7 +208,7 @@ const ComposeImport: React.FC<{
         <FileCode2 className="h-4 w-4 text-emerald-400" />
         <h2 className="text-sm font-semibold text-white">Import docker-compose.yml</h2>
       </div>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-zinc-400">
         Paste a compose file from one host. Parsing happens in your browser; only service names, images and
         published ports are saved. Other variables and secrets in the file are never sent.
       </p>
@@ -252,7 +252,7 @@ const ComposeImport: React.FC<{
       </div>
 
       <div>
-        <button type="button" onClick={() => setShowVars((v) => !v)} className="text-xs text-zinc-400 hover:text-emerald-400">
+        <button type="button" onClick={() => setShowVars((v) => !v)} className="text-xs text-zinc-300 hover:text-emerald-400">
           {showVars ? '− Hide' : '+ Add'} variables for ${'{'}VAR{'}'} ports (optional, KEY=VALUE lines)
         </button>
         {showVars && (
@@ -279,7 +279,7 @@ const ComposeImport: React.FC<{
           </button>
         )}
         {parsed && (
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-zinc-400">
             {parsed.services.length} service(s) found
             {!host.trim() && ' · enter a host label to check shared ports and save'}
           </span>
@@ -309,9 +309,9 @@ const ComposeImport: React.FC<{
       )}
 
       {rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto rounded-xl border border-white/15">
           <table className="w-full text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-400">
+            <thead className="bg-white/[0.03] text-zinc-300">
               <tr>
                 <th className="px-3 py-2 font-semibold">Save</th>
                 <th className="px-3 py-2 font-semibold">Service</th>
@@ -320,7 +320,7 @@ const ComposeImport: React.FC<{
                 <th className="px-3 py-2 font-semibold">Host ports</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {rows.map((row, i) => {
                 const svc = parsed!.services.find((s) => s.name === row.name)!;
                 const update = (patch: Partial<PreviewRow>) =>
@@ -338,7 +338,7 @@ const ComposeImport: React.FC<{
                     </td>
                     <td className="px-3 py-2">
                       <div className="font-mono text-white">{row.name}</div>
-                      <span className={`text-[10px] ${row.inCatalog ? 'text-zinc-500' : 'text-sky-400'}`}>
+                      <span className={`text-[10px] ${row.inCatalog ? 'text-zinc-400' : 'text-sky-400'}`}>
                         {row.inCatalog ? 'in catalog' : 'new'}
                       </span>
                     </td>
@@ -352,7 +352,7 @@ const ComposeImport: React.FC<{
                         className={`${inputClass} py-1 text-xs ${row.include && !row.group.trim() ? 'border-amber-600' : ''}`}
                       />
                     </td>
-                    <td className="px-3 py-2 font-mono text-zinc-400 break-all">{row.image || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-zinc-300 break-all">{row.image || '—'}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
                         {svc.ports.map((p) => {
@@ -364,14 +364,14 @@ const ComposeImport: React.FC<{
                               className={`rounded-md border px-1.5 py-0.5 font-mono ${
                                 clash
                                   ? 'border-amber-700 bg-amber-950/50 text-amber-300'
-                                  : 'border-white/10 bg-white/[0.03] text-zinc-300'
+                                  : 'border-white/15 bg-white/[0.03] text-zinc-200'
                               }`}
                             >
                               {portLabel(p)}
                             </span>
                           );
                         })}
-                        {svc.ports.length === 0 && <span className="text-zinc-600">none published</span>}
+                        {svc.ports.length === 0 && <span className="text-zinc-400">none published</span>}
                       </div>
                     </td>
                   </tr>
@@ -425,7 +425,7 @@ const VersionChips: React.FC<{
       {cells.map(({ env, entry, summary }) => {
         const label = `${env.toUpperCase()} ${entry ? summary?.tag ?? 'not in compose' : 'no file'}`;
         const style = !entry
-          ? 'border-dashed border-zinc-800 text-zinc-600'
+          ? 'border-dashed border-white/15 text-zinc-400'
           : drift
           ? 'border-amber-700 bg-amber-950/40 text-amber-300'
           : 'border-emerald-900 bg-emerald-950/30 text-emerald-300';
@@ -528,7 +528,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
         <div className="flex items-center gap-2">
           <Boxes className="h-5 w-5 text-emerald-400" />
           <h1 className="text-lg font-semibold text-white">Service Catalog</h1>
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-zinc-400">
             {services.length} services · {groups.length} groups
           </span>
         </div>
@@ -586,9 +586,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
         {byGroup.map(([group, list]) => (
           <section key={group} className={`${cardClass} p-5`}>
             <h2 className="mb-3 text-sm font-semibold text-white">
-              {group} <span className="font-normal text-zinc-500">({list.length})</span>
+              {group} <span className="font-normal text-zinc-400">({list.length})</span>
             </h2>
-            <ul className="divide-y divide-white/5">
+            <ul className="divide-y divide-white/10">
               {list.map((s) =>
                 editing?.id === s.id ? (
                   <li key={s.id} className="flex flex-wrap items-center gap-2 py-2">
@@ -614,14 +614,14 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                   <li key={s.id} className="flex items-start justify-between gap-3 py-2">
                     <div className="min-w-0">
                       <div className="font-mono text-sm text-zinc-200">{s.name}</div>
-                      {s.image && <div className="truncate font-mono text-[11px] text-zinc-500">{s.image}</div>}
+                      {s.image && <div className="truncate font-mono text-[11px] text-zinc-400">{s.image}</div>}
                       <VersionChips service={s} composeIndex={composeIndex} onEditVersion={onEditVersion} />
                       {s.ports.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {s.ports.map((p) => (
                             <span
                               key={p.id}
-                              className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400"
+                              className="rounded-md border border-white/15 bg-white/[0.03] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300"
                             >
                               {p.environment}/{p.host} {portLabel(p)}
                             </span>
@@ -634,7 +634,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         <button
                           type="button"
                           onClick={() => setEditing({ id: s.id, server: s.server, name: s.name })}
-                          className="rounded-md p-1.5 text-zinc-500 hover:bg-white/5 hover:text-white"
+                          className="rounded-md p-1.5 text-zinc-400 hover:bg-white/5 hover:text-white"
                           aria-label={`Edit ${s.name}`}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -642,7 +642,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleDelete(s)}
-                          className="rounded-md p-1.5 text-zinc-500 hover:bg-rose-950/50 hover:text-rose-300"
+                          className="rounded-md p-1.5 text-zinc-400 hover:bg-rose-950/50 hover:text-rose-300"
                           aria-label={`Delete ${s.name}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />

@@ -83,7 +83,7 @@ const FilterSelect = <T extends string>({
   <div className="flex flex-col gap-1.5">
     <label
       htmlFor={id}
-      className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
+      className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400"
     >
       {label}
     </label>
@@ -92,15 +92,15 @@ const FilterSelect = <T extends string>({
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="w-full cursor-pointer appearance-none rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-3 pr-9 text-sm font-medium text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.05] focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+        className="w-full cursor-pointer appearance-none rounded-lg border border-white/15 bg-white/[0.03] py-2 pl-3 pr-9 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.05] focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
       >
         {options.map((opt) => (
-          <option key={opt} value={opt} className="bg-[#111111] text-zinc-200">
+          <option key={opt} value={opt} className="bg-surface-raised text-zinc-200">
             {opt === 'All' ? allLabel : opt}
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
     </div>
   </div>
 );
@@ -122,7 +122,7 @@ const MatrixVersion: React.FC<{
       className={`rounded-md border px-2 py-1 font-mono text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
         diverges
           ? 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60'
-          : 'border-white/5 bg-white/[0.03] text-zinc-100 hover:border-white/20'
+          : 'border-white/10 bg-white/[0.03] text-zinc-100 hover:border-white/30'
       }`}
     >
       {version}
@@ -341,8 +341,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const tabClass = (active: boolean) =>
     `inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
       active
-        ? 'bg-white/[0.06] text-white'
-        : 'text-zinc-500 hover:bg-white/[0.02] hover:text-zinc-300'
+        ? 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30'
+        : 'text-zinc-300 hover:bg-white/[0.08] hover:text-white'
     }`;
 
   return (
@@ -355,7 +355,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
           Release Tracker
         </h1>
-        <p className="mt-1.5 text-sm text-zinc-500">
+        <p className="mt-1.5 text-sm text-zinc-400">
           Deployment audit log and cross-environment version matrix.
         </p>
       </div>
@@ -364,25 +364,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <StatsBar records={records} />
 
       {/* ── Filter bar ── */}
-      <div className="mb-6 rounded-xl border border-white/5 bg-[#111111] p-4">
+      <div className="mb-6 rounded-xl border border-white/10 bg-surface-raised p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
           {/* Search */}
           <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
             <label
               htmlFor="input-top-search"
-              className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
+              className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400"
             >
               Search
             </label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
               <input
                 id="input-top-search"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Service, server, or developer..."
-                className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-2 pl-9 pr-9 text-sm text-white placeholder-zinc-600 transition-colors hover:border-white/20 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="w-full rounded-lg border border-white/15 bg-white/[0.03] py-2 pl-9 pr-9 text-sm text-white placeholder-zinc-400 transition-colors hover:border-white/30 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               />
               {searchQuery && (
                 <button
@@ -390,7 +390,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   type="button"
                   onClick={() => setSearchQuery('')}
                   title="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 transition-colors hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -444,8 +444,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Result count + active filter reset */}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-3 text-xs">
-          <span className="flex items-center gap-2 text-zinc-500">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3 text-xs">
+          <span className="flex items-center gap-2 text-zinc-400">
             {isLoading && <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />}
             Showing <strong className="font-semibold text-white">{filteredRecords.length}</strong>{' '}
             of {records.length} records
@@ -455,7 +455,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               id="btn-reset-filters"
               type="button"
               onClick={resetFilters}
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 font-medium text-zinc-400 transition-colors hover:border-white/20 hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.03] px-2.5 py-1 font-medium text-zinc-300 transition-colors hover:border-white/30 hover:text-white"
             >
               <Filter className="h-3 w-3" />
               Clear filters
@@ -465,11 +465,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ── Tabs ── */}
-      <div className="mb-5 flex items-center gap-1 border-b border-white/5 pb-3">
+      <div className="mb-5 flex items-center gap-1 border-b border-white/10 pb-3">
         <button id="tab-activity-feed" onClick={() => setActiveTab('feed')} className={tabClass(activeTab === 'feed')}>
           <Layers className="h-4 w-4" />
           Audit Log
-          <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-400">
+          <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-300">
             {filteredRecords.length}
           </span>
         </button>
@@ -488,7 +488,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           type="button"
           onClick={() => setShowSyncLines(true)}
           title="Lines for section 1.2 of the ALARA knowledge index"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white"
         >
           <ClipboardList className="h-3.5 w-3.5" />
           §1.2 lines
@@ -497,13 +497,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* ── TAB: Drift matrix ── */}
       {activeTab === 'matrix' && (
-        <div className="animate-panel overflow-hidden rounded-xl border border-white/5 bg-[#111111]">
-          <div className="flex flex-col gap-3 border-b border-white/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="animate-panel overflow-hidden rounded-xl border border-white/10 bg-surface-raised">
+          <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold tracking-tight text-white">
                 Environment Drift Matrix
               </h2>
-              <p className="mt-0.5 text-xs text-zinc-500">
+              <p className="mt-0.5 text-xs text-zinc-400">
                 Latest <span className="font-mono text-emerald-400">SUCCESS</span> release per
                 environment. Amber marks a version that diverges from the rest of its row.
               </p>
@@ -523,7 +523,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="scrollbar-subtle overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-white/5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-white/10 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   <th className="py-3 pl-5 pr-4">Service</th>
                   <th className="px-4 py-3">SIT</th>
                   <th className="px-4 py-3">UAT</th>
@@ -531,10 +531,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <th className="py-3 pl-4 pr-5 text-right">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-white/10">
                 {matrixData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center text-sm text-zinc-500">
+                    <td colSpan={5} className="px-5 py-12 text-center text-sm text-zinc-400">
                       No services tracked yet.
                     </td>
                   </tr>
@@ -548,7 +548,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <div className="font-mono text-sm font-medium text-white">
                           {row.service}
                         </div>
-                        <div className="mt-0.5 text-xs text-zinc-500">{row.server}</div>
+                        <div className="mt-0.5 text-xs text-zinc-400">{row.server}</div>
                       </td>
 
                       <td className="px-4 py-3.5">
@@ -590,7 +590,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </span>
                         )}
                         {row.syncStatus === 'NO_RELEASES' && (
-                          <span className="text-[11px] text-zinc-600">No releases</span>
+                          <span className="text-[11px] text-zinc-400">No releases</span>
                         )}
                       </td>
                     </tr>
@@ -606,12 +606,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {activeTab === 'feed' && (
         <>
           {filteredRecords.length === 0 ? (
-            <div className="rounded-xl border border-white/5 bg-[#111111] px-6 py-16 text-center">
-              <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-white/5 bg-white/[0.03] text-zinc-600">
+            <div className="rounded-xl border border-white/10 bg-surface-raised px-6 py-16 text-center">
+              <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400">
                 <Layers className="h-5 w-5" />
               </div>
               <h3 className="text-base font-semibold text-white">No releases found</h3>
-              <p className="mx-auto mt-1.5 max-w-sm text-sm text-zinc-500">
+              <p className="mx-auto mt-1.5 max-w-sm text-sm text-zinc-400">
                 {hasActiveFilters
                   ? 'No releases match the current filters.'
                   : 'Nothing has been logged yet.'}
@@ -620,7 +620,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+                  className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3.5 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white"
                 >
                   Clear filters
                   <ArrowRight className="h-3.5 w-3.5" />

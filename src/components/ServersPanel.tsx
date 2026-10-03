@@ -7,7 +7,7 @@ const ENVS = ['SIT', 'UAT', 'Prod'];
 const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'];
 
 const inputClass =
-  'w-full px-2.5 py-1.5 bg-[#1f1f23] border border-zinc-700/80 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+  'w-full px-2.5 py-1.5 bg-surface-overlay border border-zinc-700/80 rounded-lg text-xs text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 
 const Unverified = () => <span className="text-amber-400/80">unverified</span>;
 
@@ -79,11 +79,11 @@ export const ServersPanel: React.FC<{
   };
 
   return (
-    <section className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
+    <section className="space-y-4 rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6">
       <div className="flex items-center gap-2">
         <Server className="h-4 w-4 text-emerald-400" />
         <h2 className="text-sm font-semibold text-white">Servers</h2>
-        <span className="text-xs text-zinc-500">used by the patch runbook: environment guard, folder, account</span>
+        <span className="text-xs text-zinc-400">used by the patch runbook: environment guard, folder, account</span>
       </div>
 
       {warning && (
@@ -94,9 +94,9 @@ export const ServersPanel: React.FC<{
       )}
 
       {servers.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-white/10">
+        <div className="overflow-x-auto rounded-xl border border-white/15">
           <table className="w-full min-w-[640px] text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-400">
+            <thead className="bg-white/[0.03] text-zinc-300">
               <tr>
                 <th className="px-3 py-2 font-semibold">Role</th>
                 {ENVS.map((e) => (
@@ -104,30 +104,30 @@ export const ServersPanel: React.FC<{
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {ROLES.map((role) => (
                 <tr key={role}>
                   <td className="px-3 py-2 font-semibold text-zinc-200">{role}</td>
                   {ENVS.map((env) => {
                     const s = cell(env, role);
-                    if (!s) return <td key={env} className="px-3 py-2 text-zinc-600">—</td>;
+                    if (!s) return <td key={env} className="px-3 py-2 text-zinc-400">—</td>;
                     return (
                       <td key={env} className="px-3 py-2 align-top">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 space-y-0.5">
                             <div className="font-mono text-zinc-200">{s.ip || <Unverified />}</div>
-                            <div className="text-zinc-500">
+                            <div className="text-zinc-400">
                               as <span className="font-mono">{s.runAs || <Unverified />}</span>
                             </div>
-                            <div className="truncate font-mono text-zinc-500" title={s.composePath || undefined}>
+                            <div className="truncate font-mono text-zinc-400" title={s.composePath || undefined}>
                               {s.composePath || <>folder <Unverified /></>}
                             </div>
-                            {s.toolkitVersion && <div className="text-zinc-500">toolkit {s.toolkitVersion}</div>}
+                            {s.toolkitVersion && <div className="text-zinc-400">toolkit {s.toolkitVersion}</div>}
                           </div>
                           <button
                             type="button"
                             onClick={() => startEdit(s)}
-                            className="rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-white"
+                            className="rounded-md p-1 text-zinc-400 hover:bg-white/5 hover:text-white"
                             aria-label={`Edit ${env} ${role}`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -149,14 +149,14 @@ export const ServersPanel: React.FC<{
             <h3 className="text-sm font-semibold text-white">
               {editing.environment.toUpperCase()} / {editing.role}
             </h3>
-            <button type="button" onClick={() => setEditing(null)} className="rounded-md p-1 text-zinc-400 hover:text-white" aria-label="Cancel">
+            <button type="button" onClick={() => setEditing(null)} className="rounded-md p-1 text-zinc-300 hover:text-white" aria-label="Cancel">
               <X className="h-4 w-4" />
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {FIELDS.map((f) => (
               <label key={f.key} className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{f.label}</span>
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-300">{f.label}</span>
                 <input
                   value={draft[f.key]}
                   placeholder={f.placeholder}
@@ -166,7 +166,7 @@ export const ServersPanel: React.FC<{
               </label>
             ))}
           </div>
-          <p className="text-[11px] text-zinc-500">Leave a field blank if you don't know it; it shows as unverified.</p>
+          <p className="text-[11px] text-zinc-400">Leave a field blank if you don't know it; it shows as unverified.</p>
           {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
           <button
             type="button"

@@ -32,21 +32,21 @@ export const LoginView: React.FC<{ notice?: string | null }> = ({ notice }) => {
   };
 
   const inputClass =
-    'w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+    'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-slate-300 flex items-center justify-center px-4 font-sans">
+    <div className="min-h-screen bg-surface-base text-zinc-200 flex items-center justify-center px-4 font-sans">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.02] p-6 sm:p-8 space-y-5"
+        className="w-full max-w-sm rounded-2xl border border-white/15 bg-white/[0.02] p-6 sm:p-8 space-y-5"
       >
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-emerald-400">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-emerald-400">
             <Layers className="h-4 w-4" />
           </span>
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-white">Release Tracker</h1>
-            <p className="text-xs text-zinc-500">Sign in to continue</p>
+            <p className="text-xs text-zinc-400">Sign in to continue</p>
           </div>
         </div>
 
@@ -61,7 +61,7 @@ export const LoginView: React.FC<{ notice?: string | null }> = ({ notice }) => {
         )}
 
         <div className="space-y-1.5">
-          <label htmlFor="login-email" className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
+          <label htmlFor="login-email" className="block text-xs font-bold uppercase tracking-wider text-zinc-200">
             Email
           </label>
           <input
@@ -76,7 +76,7 @@ export const LoginView: React.FC<{ notice?: string | null }> = ({ notice }) => {
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="login-password" className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
+          <label htmlFor="login-password" className="block text-xs font-bold uppercase tracking-wider text-zinc-200">
             Password
           </label>
           <input

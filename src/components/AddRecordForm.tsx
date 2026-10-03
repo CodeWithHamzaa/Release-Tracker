@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Server,
   User,
@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
 import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
+import { NOTE_LABEL, validateNote } from '@/lib/releaseNote';
 import { apiFetch, apiErrorMessage } from '../api';
 
 export interface ServiceFormBlock {
@@ -58,6 +59,8 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
   const [addedBy, setAddedBy] = useState<string>('A.Hameed');
   const [globalDeveloperName, setGlobalDeveloperName] = useState<string>(DEFAULT_DEVELOPER);
   const [note, setNote] = useState<string>('');
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   // Dynamic Services Array (Middle)
   const [servicesList, setServicesList] = useState<ServiceFormBlock[]>([
@@ -167,6 +170,15 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    // 0. The release note is mandatory: block the submit and point at the field.
+    const noteProblem = validateNote(note);
+    setNoteError(noteProblem);
+    if (noteProblem) {
+      noteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      noteRef.current?.focus();
+      return;
+    }
+
     // 1. Validate Services Array
     if (servicesList.length === 0) {
       setErrorMsg('Please add at least one service to the deployment batch.');
@@ -243,7 +255,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
       configDetails: isConfigUpdate ? configDetails.trim() : null,
       hasCommands,
       commandDetails: hasCommands ? commandDetails.trim() : null,
-      note: note.trim() || null,
+      note: note.trim(),
       services: validatedServices,
     };
 
@@ -297,15 +309,15 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
         id="btn-back-to-dashboard"
         type="button"
         onClick={onCancel}
-        className="inline-flex items-center text-sm font-medium text-zinc-400 hover:text-emerald-400 mb-6 transition-colors"
+        className="inline-flex items-center text-sm font-medium text-zinc-300 hover:text-emerald-400 mb-6 transition-colors"
       >
         <ArrowLeft className="w-4 h-4 mr-2" />
         Back to Dashboard
       </button>
 
-      <div className="bg-[#111111] rounded-2xl border border-zinc-800/80 shadow-2xl overflow-hidden">
+      <div className="bg-surface-raised rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-6 sm:p-8 border-b border-zinc-800/80 bg-[#121214]">
+        <div className="p-6 sm:p-8 border-b border-white/10 bg-surface-raised">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3.5">
               <div className="w-11 h-11 rounded-xl bg-emerald-950/70 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-md">
@@ -320,14 +332,14 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                     Multi-Service
                   </span>
                 </div>
-                <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+                <p className="text-xs sm:text-sm text-zinc-300 mt-1">
                   Deploy multiple services across servers simultaneously into a single environment batch.
                 </p>
               </div>
             </div>
 
             {/* Live Count Pill */}
-            <div className="flex items-center space-x-2 bg-[#18181b] px-3.5 py-1.5 rounded-xl border border-zinc-800 text-xs text-zinc-300 self-start sm:self-auto">
+            <div className="flex items-center space-x-2 bg-surface-overlay px-3.5 py-1.5 rounded-xl border border-white/15 text-xs text-zinc-200 self-start sm:self-auto">
               <Box className="w-4 h-4 text-emerald-400" />
               <span>
                 <strong className="text-white">{servicesList.length}</strong>{' '}
@@ -360,14 +372,14 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
           {/* 1. GLOBAL BATCH INFO (TOP) */}
           {/* ========================================================================= */}
           <div className="space-y-5">
-            <div className="flex items-center space-x-2 text-xs font-bold text-zinc-400 uppercase tracking-wider pb-2 border-b border-zinc-800/60">
+            <div className="flex items-center space-x-2 text-xs font-bold text-zinc-300 uppercase tracking-wider pb-2 border-b border-zinc-800/60">
               <Sliders className="w-4 h-4 text-emerald-400" />
               <span>1. Global Batch Environment & Attributes</span>
             </div>
 
             {/* Status Selection - Strict Uppercase Standard */}
             <div>
-              <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2">
                 Batch Deployment Status *
               </label>
               <div className="grid grid-cols-3 gap-3">
@@ -378,7 +390,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
                     status === 'PENDING'
                       ? 'bg-amber-950/40 text-amber-300 border-amber-600/70 ring-2 ring-amber-500/20 shadow-lg'
-                      : 'bg-[#18181b] text-zinc-400 border-zinc-800 hover:bg-zinc-800/60 hover:text-zinc-200'
+                      : 'bg-surface-overlay text-zinc-300 border-white/15 hover:bg-zinc-800/60 hover:text-zinc-200'
                   }`}
                 >
                   <Clock className="w-4 h-4 text-amber-400" />
@@ -392,7 +404,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
                     status === 'SUCCESS'
                       ? 'bg-emerald-950/40 text-emerald-300 border-emerald-600/70 ring-2 ring-emerald-500/20 shadow-lg'
-                      : 'bg-[#18181b] text-zinc-400 border-zinc-800 hover:bg-zinc-800/60 hover:text-zinc-200'
+                      : 'bg-surface-overlay text-zinc-300 border-white/15 hover:bg-zinc-800/60 hover:text-zinc-200'
                   }`}
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -406,7 +418,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
                     status === 'FAILED'
                       ? 'bg-rose-950/40 text-rose-300 border-rose-600/70 ring-2 ring-rose-500/20 shadow-lg'
-                      : 'bg-[#18181b] text-zinc-400 border-zinc-800 hover:bg-zinc-800/60 hover:text-zinc-200'
+                      : 'bg-surface-overlay text-zinc-300 border-white/15 hover:bg-zinc-800/60 hover:text-zinc-200'
                   }`}
                 >
                   <XCircle className="w-4 h-4 text-rose-400" />
@@ -420,11 +432,11 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
               <div>
                 <label
                   htmlFor="select-environment"
-                  className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2"
+                  className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2"
                 >
                   Target Environment *
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#18181b] rounded-xl border border-zinc-800">
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-surface-overlay rounded-xl border border-white/15">
                   {(['SIT', 'UAT', 'Prod'] as const).map((env) => (
                     <button
                       key={env}
@@ -433,11 +445,11 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                       className={`py-2 text-xs font-bold rounded-lg transition-all ${
                         environment === env
                           ? env === 'Prod'
-                            ? 'bg-emerald-600 text-white shadow-md'
+                            ? 'bg-rose-600 text-white shadow-md'
                             : env === 'UAT'
-                            ? 'bg-indigo-600 text-white shadow-md'
-                            : 'bg-amber-600 text-white shadow-md'
-                          : 'text-zinc-400 hover:text-white'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'bg-sky-600 text-white shadow-md'
+                          : 'text-zinc-300 hover:text-white'
                       }`}
                     >
                       {env}
@@ -449,7 +461,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
               <div>
                 <label
                   htmlFor="select-added-by"
-                  className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2"
+                  className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2"
                 >
                   Deployed / Logged By *
                 </label>
@@ -457,7 +469,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   id="select-added-by"
                   value={addedBy}
                   onChange={(e) => setAddedBy(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#18181b] border border-zinc-800 rounded-xl text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+                  className="w-full px-3.5 py-2.5 bg-surface-overlay border border-white/15 rounded-xl text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
                 >
                   <option value="A.Hameed">A.Hameed</option>
                   <option value="Hanzala">Hanzala</option>
@@ -467,19 +479,19 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
               <div>
                 <label
                   htmlFor="select-default-developer"
-                  className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2"
+                  className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2"
                 >
                   Lead Developer / Author *
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400">
                     <User className="w-4 h-4 text-emerald-500" />
                   </div>
                   <select
                     id="select-default-developer"
                     value={globalDeveloperName}
                     onChange={(e) => setGlobalDeveloperName(e.target.value)}
-                    className="w-full pl-10 pr-9 py-2.5 bg-[#18181b] border border-zinc-800 rounded-xl text-sm font-semibold text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+                    className="w-full pl-10 pr-9 py-2.5 bg-surface-overlay border border-white/15 rounded-xl text-sm font-semibold text-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
                     required
                   >
                     {developerOptions(globalDeveloperName).map((name) => (
@@ -488,7 +500,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                  <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
                 </div>
               </div>
             </div>
@@ -501,10 +513,10 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
               <div className="flex items-center space-x-2">
                 <Box className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
                   2. Services Included in This Batch
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-800 text-zinc-300">
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-800 text-zinc-200">
                   {servicesList.length}
                 </span>
               </div>
@@ -531,7 +543,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 return (
                   <div
                     key={block.id}
-                    className="p-4 sm:p-5 rounded-xl bg-[#161618] border border-zinc-800/90 shadow-sm relative group hover:border-zinc-700/80 transition-all"
+                    className="p-4 sm:p-5 rounded-xl bg-surface-raised border border-zinc-800/90 shadow-sm relative group hover:border-zinc-700/80 transition-all"
                   >
                     {/* Block Title & Action Controls */}
                     <div className="flex items-center justify-between mb-3.5 pb-2.5 border-b border-zinc-800/60">
@@ -543,7 +555,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                           Service Block #{index + 1}
                         </span>
                         {block.server && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-zinc-800/80 text-zinc-400 font-mono">
+                          <span className="text-xs px-2 py-0.5 rounded bg-zinc-800/80 text-zinc-300 font-mono">
                             {block.server}
                           </span>
                         )}
@@ -555,7 +567,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                           type="button"
                           onClick={() => handleDuplicateServiceBlock(index)}
                           title="Duplicate this service block"
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-300 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors"
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
@@ -570,7 +582,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                               ? 'Batch must contain at least one service'
                               : 'Remove this service from batch'
                           }
-                          className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-950/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-950/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -581,7 +593,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                       {/* Server Selector */}
                       <div className="sm:col-span-4">
-                        <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        <label className="block text-xs font-semibold text-zinc-200 mb-1.5">
                           Server *
                         </label>
                         <select
@@ -589,7 +601,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                           onChange={(e) =>
                             handleUpdateBlockField(block.id, 'server', e.target.value)
                           }
-                          className="w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                          className="w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                         >
                           {availableServers.map((srv) => (
                             <option key={srv} value={srv}>
@@ -611,7 +623,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                               )
                             }
                             placeholder="Enter custom server name..."
-                            className="mt-2 w-full px-3 py-1.5 bg-[#1f1f23] border border-zinc-700/80 rounded-lg text-xs text-white"
+                            className="mt-2 w-full px-3 py-1.5 bg-surface-overlay border border-zinc-700/80 rounded-lg text-xs text-white"
                             required
                           />
                         )}
@@ -619,7 +631,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
 
                       {/* Service Selector (Dynamically populated) */}
                       <div className="sm:col-span-4">
-                        <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        <label className="block text-xs font-semibold text-zinc-200 mb-1.5">
                           Target Service *
                         </label>
                         <select
@@ -627,7 +639,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                           onChange={(e) =>
                             handleUpdateBlockField(block.id, 'service', e.target.value)
                           }
-                          className="w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                          className="w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                         >
                           {currentServerServices.map((svc) => (
                             <option key={svc} value={svc}>
@@ -649,7 +661,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                               )
                             }
                             placeholder="Enter custom service name..."
-                            className="mt-2 w-full px-3 py-1.5 bg-[#1f1f23] border border-zinc-700/80 rounded-lg text-xs text-white"
+                            className="mt-2 w-full px-3 py-1.5 bg-surface-overlay border border-zinc-700/80 rounded-lg text-xs text-white"
                             required
                           />
                         )}
@@ -657,11 +669,11 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
 
                       {/* Version / Docker Image Tag */}
                       <div className="sm:col-span-4">
-                        <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                        <label className="block text-xs font-semibold text-zinc-200 mb-1.5">
                           Version / Docker Image Tag *
                         </label>
                         <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
                             <Tag className="w-3.5 h-3.5 text-emerald-500" />
                           </div>
                           <input
@@ -671,7 +683,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                               handleUpdateBlockField(block.id, 'version', e.target.value)
                             }
                             placeholder="e.g. v1.0.2 or sha-9a1f2"
-                            className="w-full pl-9 pr-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm font-mono text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                            className="w-full pl-9 pr-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm font-mono text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                             required
                           />
                         </div>
@@ -687,7 +699,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
               id="btn-add-service-bottom"
               type="button"
               onClick={handleAddServiceBlock}
-              className="w-full py-3.5 border-2 border-dashed border-zinc-800 hover:border-emerald-500/60 rounded-xl flex items-center justify-center space-x-2 text-sm font-semibold text-zinc-400 hover:text-emerald-400 hover:bg-emerald-950/20 transition-all"
+              className="w-full py-3.5 border-2 border-dashed border-white/15 hover:border-emerald-500/60 rounded-xl flex items-center justify-center space-x-2 text-sm font-semibold text-zinc-300 hover:text-emerald-400 hover:bg-emerald-950/20 transition-all"
             >
               <Plus className="w-4 h-4" />
               <span>+ Add Service to Batch</span>
@@ -698,14 +710,14 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
           {/* 3. TOGGLES: CONFIG CHANGES & SCRIPTS/COMMANDS (BOTTOM) */}
           {/* ========================================================================= */}
           <div className="space-y-4 pt-2">
-            <div className="flex items-center space-x-2 text-xs font-bold text-zinc-400 uppercase tracking-wider pb-2 border-b border-zinc-800/60">
+            <div className="flex items-center space-x-2 text-xs font-bold text-zinc-300 uppercase tracking-wider pb-2 border-b border-zinc-800/60">
               <Terminal className="w-4 h-4 text-emerald-400" />
               <span>3. Change Details, Configs & Deployment Commands</span>
             </div>
 
             {/* Checkbox Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-zinc-800 bg-[#18181b] hover:bg-zinc-800/50 cursor-pointer transition-colors">
+              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-white/15 bg-surface-overlay hover:bg-zinc-800/50 cursor-pointer transition-colors">
                 <input
                   id="checkbox-build-update"
                   type="checkbox"
@@ -716,7 +728,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 <span className="text-xs font-semibold text-zinc-200">Build Image</span>
               </label>
 
-              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-zinc-800 bg-[#18181b] hover:bg-zinc-800/50 cursor-pointer transition-colors">
+              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-white/15 bg-surface-overlay hover:bg-zinc-800/50 cursor-pointer transition-colors">
                 <input
                   id="checkbox-env-update"
                   type="checkbox"
@@ -727,7 +739,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 <span className="text-xs font-semibold text-zinc-200">Env Variables</span>
               </label>
 
-              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-zinc-800 bg-[#18181b] hover:bg-zinc-800/50 cursor-pointer transition-colors">
+              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-white/15 bg-surface-overlay hover:bg-zinc-800/50 cursor-pointer transition-colors">
                 <input
                   id="checkbox-config-update"
                   type="checkbox"
@@ -738,7 +750,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 <span className="text-xs font-semibold text-zinc-200">Config Changes</span>
               </label>
 
-              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-zinc-800 bg-[#18181b] hover:bg-zinc-800/50 cursor-pointer transition-colors">
+              <label className="flex items-center space-x-2.5 p-3 rounded-xl border border-white/15 bg-surface-overlay hover:bg-zinc-800/50 cursor-pointer transition-colors">
                 <input
                   id="checkbox-has-commands"
                   type="checkbox"
@@ -761,7 +773,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   value={envDetails}
                   onChange={(e) => setEnvDetails(e.target.value)}
                   placeholder="e.g. REDIS_CLUSTER_URL=rediss://prod-cache.internal:6379&#10;BOT_MAX_CONCURRENCY=250"
-                  className="w-full p-3 bg-[#121214] border border-amber-800/60 rounded-lg text-xs font-mono text-amber-200 placeholder-amber-700/60 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full p-3 bg-surface-raised border border-amber-800/60 rounded-lg text-xs font-mono text-amber-200 placeholder-amber-700/60 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   required={isEnvUpdate}
                 />
               </div>
@@ -778,7 +790,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   value={configDetails}
                   onChange={(e) => setConfigDetails(e.target.value)}
                   placeholder="e.g. Updated timeout thresholds in config/routing.json from 15s to 8s; enabled heartbeat interval 25s."
-                  className="w-full p-3 bg-[#121214] border border-indigo-800/60 rounded-lg text-xs font-mono text-indigo-200 placeholder-indigo-700/60 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full p-3 bg-surface-raised border border-indigo-800/60 rounded-lg text-xs font-mono text-indigo-200 placeholder-indigo-700/60 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   required={isConfigUpdate}
                 />
               </div>
@@ -786,50 +798,67 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
 
             {/* Revealed: Deployment Commands / Scripts */}
             {hasCommands && (
-              <div className="p-4 rounded-xl bg-[#09090b] border border-zinc-800 space-y-2">
+              <div className="p-4 rounded-xl bg-surface-sunken border border-white/15 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider">
                     Deployment / Shell Execution Commands
                   </label>
-                  <span className="text-xs text-zinc-500 font-mono">bash / docker</span>
+                  <span className="text-xs text-zinc-400 font-mono">bash / docker</span>
                 </div>
                 <textarea
                   rows={3}
                   value={commandDetails}
                   onChange={(e) => setCommandDetails(e.target.value)}
                   placeholder="e.g. docker compose -f docker-compose.sit.yml up -d --force-recreate&#10;kubectl rollout restart deployment/bot-builder-api -n sit"
-                  className="w-full p-3 bg-black border border-zinc-800 rounded-lg text-xs font-mono text-emerald-400 placeholder-emerald-900/60 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full p-3 bg-black border border-white/15 rounded-lg text-xs font-mono text-emerald-400 placeholder-emerald-900/60 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   required={hasCommands}
                 />
               </div>
             )}
 
-            {/* Global Release Notes */}
+            {/* Release Notes: mandatory, shown on every Audit Log row */}
             <div>
               <label
                 htmlFor="textarea-batch-note"
-                className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2"
+                className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2"
               >
-                Global Release Notes / Context (Optional)
+                {NOTE_LABEL} <span className="text-rose-400" aria-hidden="true">*</span>
               </label>
               <textarea
                 id="textarea-batch-note"
+                ref={noteRef}
                 rows={3}
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  if (noteError) setNoteError(null);
+                }}
+                aria-required="true"
+                aria-invalid={noteError ? true : undefined}
+                aria-describedby={noteError ? 'batch-note-error' : undefined}
                 placeholder="Describe reason for deployment, sprint context, Jira tickets, bug fixes, or post-deploy verification notes..."
-                className="w-full px-3.5 py-2.5 bg-[#18181b] border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition-all"
+                className={`w-full px-3.5 py-2.5 bg-surface-overlay border rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 transition-all ${
+                  noteError
+                    ? 'border-rose-500 focus:ring-rose-500/30 focus:border-rose-500'
+                    : 'border-white/15 focus:ring-emerald-500/30 focus:border-emerald-500'
+                }`}
               />
+              {noteError && (
+                <p id="batch-note-error" role="alert" className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-rose-300">
+                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                  {noteError}
+                </p>
+              )}
             </div>
           </div>
 
           {/* ========================================================================= */}
           {/* BATCH SUMMARY BAR & ACTIONS */}
           {/* ========================================================================= */}
-          <div className="pt-6 border-t border-zinc-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
             {/* Summary details */}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span className="font-semibold text-zinc-300">Ready to deploy:</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+              <span className="font-semibold text-zinc-200">Ready to deploy:</span>
               <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 font-bold border border-emerald-800/60">
                 {environment}
               </span>
@@ -840,7 +869,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 {Object.entries(serverCounts).map(([srv, count]) => (
                   <span
                     key={srv}
-                    className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 text-xs font-mono"
+                    className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 text-xs font-mono"
                   >
                     {srv}: {count}
                   </span>
@@ -854,7 +883,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                 id="btn-cancel-form"
                 type="button"
                 onClick={onCancel}
-                className="px-5 py-2.5 text-xs sm:text-sm font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors"
+                className="px-5 py-2.5 text-xs sm:text-sm font-semibold text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors"
               >
                 Cancel
               </button>

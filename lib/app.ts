@@ -13,6 +13,7 @@ import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
 import { requireAuth } from './auth.js';
 import { findPortConflicts, PortBinding } from './compose.js';
 import { parseRecordDate } from './recordDate.js';
+import { validateNote } from './releaseNote.js';
 import { parseToolkitOutput } from './toolkitParse.js';
 import crypto from 'crypto';
 
@@ -377,6 +378,13 @@ router.post('/records', async (req: Request, res: Response) => {
       createdRecords.push(record);
     }
 
+    // The release note is mandatory on every record (batch, array or single).
+    for (const record of createdRecords) {
+      const noteError = validateNote(record.note);
+      if (noteError) return res.status(400).json({ error: 'Bad Request', message: noteError });
+      record.note = String(record.note).trim();
+    }
+
     // Persist to the database when one is configured; only local dev with no
     // database keeps records in memory.
     try {
@@ -429,6 +437,14 @@ router.post('/records', async (req: Request, res: Response) => {
 router.patch('/records/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = pickEditableFields(req.body);
+
+  // A PATCH that does not touch the note keeps working; one that sends it must
+  // not blank it out.
+  if (req.body?.note !== undefined) {
+    const noteError = validateNote(req.body.note);
+    if (noteError) return res.status(400).json({ error: 'Bad Request', message: noteError });
+    data.note = String(req.body.note).trim();
+  }
 
   // The deployment date can be corrected or backdated (createdAt is what the
   // feed and Drift Matrix order by).

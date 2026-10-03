@@ -12,8 +12,8 @@ interface NavbarProps {
 const tabClass = (active: boolean) =>
   `inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-semibold sm:px-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
     active
-      ? 'bg-white/[0.06] text-white'
-      : 'text-zinc-400 hover:bg-white/[0.04] hover:text-white'
+      ? 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30'
+      : 'text-zinc-300 hover:bg-white/[0.08] hover:text-white'
   }`;
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,7 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignOut,
 }) => {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/5 bg-[#0a0a0a]/85 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-white/10 bg-surface-base/85 backdrop-blur-md">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Brand */}
@@ -33,7 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onNavigate('/')}
             className="group flex items-center gap-3 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-emerald-400 transition-colors group-hover:border-white/20">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-emerald-400 transition-colors group-hover:border-white/30">
               <Layers className="h-4 w-4" />
             </span>
             <span className="hidden text-sm font-semibold tracking-tight text-white lg:inline">
@@ -44,7 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Realtime indicator + actions */}
           <div className="flex items-center gap-1.5 sm:gap-3">
             <span
-              className="hidden items-center gap-2 rounded-full border border-white/5 bg-white/[0.03] px-2.5 py-1 sm:inline-flex"
+              className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 sm:inline-flex"
               title={
                 isRealtimeConnected
                   ? 'Realtime connected — updates stream in live'
@@ -60,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
               <span
                 className={`text-[11px] font-medium ${
-                  isRealtimeConnected ? 'text-emerald-400' : 'text-zinc-500'
+                  isRealtimeConnected ? 'text-emerald-400' : 'text-zinc-400'
                 }`}
               >
                 {isRealtimeConnected ? 'Live' : 'Offline'}
@@ -132,7 +132,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="btn-sign-out"
                 onClick={onSignOut}
                 title={userEmail ? `Signed in as ${userEmail}` : 'Sign out'}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-2 text-xs text-zinc-400 transition-colors hover:border-white/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs text-zinc-300 transition-colors hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
               >
                 <LogOut className="h-4 w-4" />
                 <span className="hidden max-w-[160px] truncate xl:inline">{userEmail || 'Sign out'}</span>

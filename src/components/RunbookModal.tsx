@@ -13,9 +13,9 @@ interface RunbookModalProps {
 }
 
 const inputClass =
-  'w-full px-3 py-2 bg-[#1f1f23] border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
+  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 const buttonClass =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-white/20 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
+  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
 
 const CopyButton: React.FC<{ text: string; label?: string }> = ({ text, label }) => {
   const [done, setDone] = useState(false);
@@ -91,21 +91,21 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
         aria-modal="true"
         aria-labelledby="runbook-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111111] shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-surface-raised shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-[#161618] px-6 py-4">
+        <div className="flex items-center justify-between border-b border-white/15 bg-surface-raised px-6 py-4">
           <div className="flex items-center gap-2">
             <FileTerminal className="h-5 w-5 text-emerald-400" />
             <div>
               <h2 id="runbook-title" className="text-base font-bold text-white">Patch runbook</h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-zinc-300">
                 {indexEnv(record.environment)} / {record.server}
                 {server?.ip ? ` · ${server.ip}` : ' · IP unknown'}
                 {server?.runAs ? ` · as ${server.runAs}` : ''}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white" aria-label="Close">
+          <button onClick={onClose} className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -113,7 +113,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
           <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
             <div>
-              <label htmlFor="runbook-patch-id" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-300">
+              <label htmlFor="runbook-patch-id" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-200">
                 PATCH_ID
               </label>
               <input
@@ -122,10 +122,10 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
                 onChange={(e) => setPatchId(e.target.value)}
                 className={`${inputClass} font-mono ${idOk ? '' : 'border-amber-600'}`}
               />
-              <p className="mt-1 text-[11px] text-zinc-500">Folder name under alara/patches/incoming/</p>
+              <p className="mt-1 text-[11px] text-zinc-400">Folder name under alara/patches/incoming/</p>
             </div>
             <fieldset>
-              <legend className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-300">
+              <legend className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-zinc-200">
                 Images in this patch
               </legend>
               <div className="flex flex-wrap gap-1.5">
@@ -135,7 +135,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
                     <label
                       key={c.service}
                       className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs ${
-                        on ? 'border-emerald-700 bg-emerald-950/40 text-emerald-200' : 'border-white/10 text-zinc-400'
+                        on ? 'border-emerald-700 bg-emerald-950/40 text-emerald-200' : 'border-white/15 text-zinc-300'
                       }`}
                     >
                       <input
@@ -172,19 +172,19 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
 
           <ol className="space-y-4">
             {rb.steps.map((step, i) => (
-              <li key={step.title} className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+              <li key={step.title} className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
                 <h3 className="text-sm font-semibold text-white">
                   {i + 1}. {step.title}
                 </h3>
                 {step.commands.map((cmd) => (
                   <div key={cmd} className="mt-2 flex items-center gap-2">
-                    <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-white/5 bg-black/40 px-3 py-2 font-mono text-xs text-emerald-200">
+                    <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-emerald-200">
                       {cmd}
                     </code>
                     <CopyButton text={cmd.replace(/\s+#.*$/, '')} />
                   </div>
                 ))}
-                <ul className="mt-2 space-y-1 text-xs text-zinc-400">
+                <ul className="mt-2 space-y-1 text-xs text-zinc-300">
                   {step.notes.map((n) => (
                     <li key={n} className="break-words">• {n}</li>
                   ))}
@@ -194,7 +194,7 @@ export const RunbookModal: React.FC<RunbookModalProps> = ({ record, records, ser
           </ol>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 bg-[#161618] px-6 py-4">
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/15 bg-surface-raised px-6 py-4">
           <CopyButton text={runbookMarkdown(input)} label="Copy checklist" />
           <button type="button" className={buttonClass} onClick={() => downloadText(`${fileBase}.md`, runbookMarkdown(input), 'text/markdown')}>
             <Download className="h-3.5 w-3.5" /> .md

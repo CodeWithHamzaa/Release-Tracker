@@ -1,18 +1,23 @@
 @import "tailwindcss";
 
 /*
- * Modern Developer Dark Theme
- * Pure blacks, dark slates, very subtle white borders (Vercel / Linear feel).
+ * Release Tracker dark theme: a brighter dark with a clear surface ladder
+ * (base < raised < overlay), stronger borders and an emerald accent.
+ * Muted text never goes below zinc-500, and data text sits at zinc-300 or
+ * lighter, so it stays readable on every surface.
  *
  * Note: this project does NOT install tailwindcss-animate, so `animate-in`
  * style utilities are unavailable. The keyframes below are hand-rolled so the
- * accordion and panel transitions actually run.
+ * panel transitions actually run.
  */
 
 @theme {
-  --color-surface-base: #0a0a0a;
-  --color-surface-raised: #111111;
-  --color-surface-sunken: #08080a;
+  --color-surface-base: #0b0b0f;
+  --color-surface-raised: #15151b;
+  --color-surface-overlay: #1d1d25;
+  --color-surface-sunken: #08080b;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
 
 html {
@@ -20,9 +25,31 @@ html {
 }
 
 body {
-  background-color: #0a0a0a;
+  background-color: #0b0b0f;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Versions, counts and dates line up in columns and are easy to scan. */
+.font-mono,
+table,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background-color: rgb(52 211 153 / 0.3);
+  color: #fff;
+}
+
+/* Fallback keyboard focus ring. In the base layer so a component's own
+   focus:outline-none / focus:ring utilities still win. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid rgb(52 211 153 / 0.7);
+    outline-offset: 2px;
+  }
 }
 
 /* Accordion: expanded panel eases in rather than snapping open. */

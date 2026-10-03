@@ -371,7 +371,7 @@ export default function App() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center" aria-busy="true">
+      <div className="min-h-screen bg-surface-base flex items-center justify-center" aria-busy="true">
         <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
       </div>
     );
@@ -381,7 +381,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-slate-300 flex flex-col font-sans selection:bg-emerald-950 selection:text-emerald-300">
+    <div className="min-h-screen bg-surface-base text-zinc-200 flex flex-col font-sans selection:bg-emerald-950 selection:text-emerald-300">
       <Navbar
         currentPath={currentPath}
         onNavigate={(path) => setCurrentPath(path)}
