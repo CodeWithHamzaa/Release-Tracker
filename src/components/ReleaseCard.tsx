@@ -274,38 +274,44 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
           />
         </span>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          {/* Release note: two lines collapsed, full text once expanded. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* Line 1: the service is the headline of the row, with its version. */}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-mono text-base font-semibold leading-tight text-white">
+              {record.service}
+            </span>
+            <span className="flex-shrink-0 rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs font-semibold text-zinc-100">
+              {record.version || '—'}
+            </span>
+          </div>
+
+          {/* Line 2: the release note is the record's purpose, so it reads as a
+              supporting description: two lines collapsed, full text expanded. */}
           {noteText ? (
             <p
-              className={`whitespace-pre-line break-words text-[15px] font-medium leading-snug text-white ${
+              className={`whitespace-pre-line break-words text-[13px] leading-snug text-zinc-300 ${
                 isExpanded ? '' : 'line-clamp-2'
               }`}
             >
               {noteText}
             </p>
           ) : (
-            <p className="text-sm italic text-zinc-300">No notes recorded</p>
+            <p className="text-[13px] italic text-zinc-400">No notes recorded</p>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-zinc-200">
-            <span className="truncate font-mono text-[13px] font-semibold text-zinc-100">
-              {record.service}
-            </span>
-            {/* Below md the right-hand pills are hidden, so the line carries
-                environment, version and developer too. */}
+          {/* Below md the right-hand pills are hidden, so a compact line carries
+              environment, developer and time instead. */}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-zinc-200 md:hidden">
             <span
-              className={`rounded-full border px-2 py-px text-[10px] font-bold uppercase tracking-wider md:hidden ${envStyles(
+              className={`rounded-full border px-2 py-px text-[10px] font-bold uppercase tracking-wider ${envStyles(
                 record.environment
               )}`}
             >
               {record.environment}
             </span>
-            <span className="font-mono text-zinc-200 md:hidden">{record.version || '—'}</span>
-            <span className="text-zinc-400 md:hidden">·</span>
-            <span className="truncate md:hidden">{developer}</span>
-            <span className="text-zinc-400 md:hidden">·</span>
-            <span className="whitespace-nowrap text-zinc-300 md:hidden">{created.relative}</span>
+            <span className="truncate">{developer}</span>
+            <span className="text-zinc-400">·</span>
+            <span className="whitespace-nowrap text-zinc-300">{created.relative}</span>
           </div>
         </div>
 
@@ -316,11 +322,6 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
           )}`}
         >
           {record.environment}
-        </span>
-
-        {/* Version */}
-        <span className="mt-0.5 hidden flex-shrink-0 rounded-md border border-white/15 bg-white/[0.06] px-2 py-1 font-mono text-xs font-semibold text-zinc-100 md:inline-block">
-          {record.version || '—'}
         </span>
 
         {/* Developer + relative time */}

@@ -1,24 +1,21 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Search,
   Layers,
   X,
-  ChevronDown,
   Table,
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
   Filter,
   Loader2,
-  ClipboardList,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
-import { DEVELOPERS } from '@/lib/developers';
+import { matchesSearch } from '@/lib/recordSearch';
 import { ReleaseCard } from './ReleaseCard';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
 import { RunbookModal } from './RunbookModal';
-import { SyncLinesModal } from './SyncLinesModal';
 import type { ServerNode } from '../useServers';
 import { ageText, sameVersion, RunningIndex } from '@/lib/healthModel';
 
@@ -56,54 +53,14 @@ const RunningMarker: React.FC<{ entry?: RunningIndex[string]; recorded: string |
 };
 
 type EnvFilter = 'All' | 'SIT' | 'UAT' | 'Prod';
-type StatusFilter = 'All' | 'SUCCESS' | 'PENDING' | 'FAILED';
-type UserFilter = 'All' | 'A.Hameed' | 'Hanzala';
 
-/**
- * Native <select> in a dark shell. Native keeps keyboard/mobile behaviour and
- * screen-reader semantics for free; the chevron is drawn by us so it matches
- * the rest of the theme.
- */
-const FilterSelect = <T extends string>({
-  id,
-  label,
-  allLabel,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  /** Wording for the "All" option — spelled out rather than pluralizing `label`. */
-  allLabel: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-}) => (
-  <div className="flex flex-col gap-1.5">
-    <label
-      htmlFor={id}
-      className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400"
-    >
-      {label}
-    </label>
-    <div className="relative">
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="w-full cursor-pointer appearance-none rounded-lg border border-white/15 bg-white/[0.03] py-2 pl-3 pr-9 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.05] focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt} className="bg-surface-raised text-zinc-200">
-            {opt === 'All' ? allLabel : opt}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-    </div>
-  </div>
-);
+// Stored value (matches record.environment) and the label shown on the tab.
+const ENV_TABS: ReadonlyArray<{ value: EnvFilter; label: string }> = [
+  { value: 'All', label: 'All' },
+  { value: 'SIT', label: 'SIT' },
+  { value: 'UAT', label: 'UAT' },
+  { value: 'Prod', label: 'PROD' },
+];
 
 /** Version chip in the drift matrix. Highlighted when it diverges from the row baseline. */
 const MatrixVersion: React.FC<{
@@ -139,15 +96,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   running,
 }) => {
   const [runbookRecord, setRunbookRecord] = useState<ReleaseRecord | null>(null);
-  const [showSyncLines, setShowSyncLines] = useState(false);
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
   // Filters start unset so the initial load shows every record across all environments.
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEnv, setSelectedEnv] = useState<EnvFilter>('All');
-  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('All');
-  const [selectedUser, setSelectedUser] = useState<UserFilter>('All');
-  const [selectedDev, setSelectedDev] = useState<string>('All');
 
   const [editingRecord, setEditingRecord] = useState<ReleaseRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -162,43 +115,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onRecordUpdated?.(updatedRecord);
   };
 
-  // Roster first, then any developer name already on a record but not on the
-  // roster — otherwise older/API-created entries would be unreachable by filter.
-  const developerOptions = useMemo(() => {
-    const extras = Array.from(
-      new Set(
-        records
-          .map((r) => (r.developerName || '').trim())
-          .filter((name) => name && !DEVELOPERS.includes(name))
-      )
-    ).sort();
-    return ['All', ...DEVELOPERS, ...extras];
-  }, [records]);
-
-  // If the developer this filter is pinned to drops out of the derived
-  // options (its only record was deleted or edited to a different name),
-  // fall back to "All" instead of silently matching zero records while the
-  // select still reads as a real, unmet filter.
-  useEffect(() => {
-    if (selectedDev !== 'All' && !developerOptions.includes(selectedDev)) {
-      setSelectedDev('All');
-    }
-  }, [developerOptions, selectedDev]);
-
   const resetFilters = () => {
     setSearchQuery('');
     setSelectedEnv('All');
-    setSelectedStatus('All');
-    setSelectedUser('All');
-    setSelectedDev('All');
   };
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
-    selectedEnv !== 'All' ||
-    selectedStatus !== 'All' ||
-    selectedUser !== 'All' ||
-    selectedDev !== 'All';
+    selectedEnv !== 'All';
 
   // ── Environment Drift Matrix ───────────────────────────────────────────────
   // Shows ONLY the latest record per environment where status === 'SUCCESS'.
@@ -291,52 +215,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   // ── Feed filtering ─────────────────────────────────────────────────────────
-  const filteredRecords = useMemo(() => {
-    const tokens = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // Text search first (service, note, date, ...; see lib/recordSearch.ts); the
+  // environment tab is applied on top, so each tab's badge shows exactly what
+  // clicking it will list.
+  const searchedRecords = useMemo(
+    () => records.filter((r) => matchesSearch(r, searchQuery)),
+    [records, searchQuery]
+  );
 
-    return records
-      .filter((r) => {
-        if (selectedEnv !== 'All' && r.environment.toUpperCase() !== selectedEnv.toUpperCase()) {
-          return false;
-        }
+  const envCounts = useMemo(() => {
+    const counts: Record<EnvFilter, number> = { All: searchedRecords.length, SIT: 0, UAT: 0, Prod: 0 };
+    for (const r of searchedRecords) {
+      const tab = ENV_TABS.find((t) => t.value !== 'All' && t.value.toUpperCase() === r.environment.toUpperCase());
+      if (tab) counts[tab.value] += 1;
+    }
+    return counts;
+  }, [searchedRecords]);
 
-        if (selectedStatus !== 'All') {
-          if (String(r.status || 'PENDING').toUpperCase() !== selectedStatus) return false;
-        }
-
-        if (selectedDev !== 'All' && (r.developerName || '').trim() !== selectedDev) {
-          return false;
-        }
-
-        if (selectedUser !== 'All') {
-          const rUser = (r.added_by || '').toLowerCase();
-          const sUser = selectedUser.toLowerCase();
-          if (!rUser.includes(sUser) && !sUser.includes(rUser)) return false;
-        }
-
-        if (tokens.length > 0) {
-          const haystack = [
-            r.service,
-            r.server,
-            r.environment,
-            r.developerName,
-            r.status,
-            r.version,
-            r.note,
-            r.added_by,
-            r.source,
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
-
-          if (!tokens.every((token) => haystack.includes(token))) return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [records, searchQuery, selectedEnv, selectedStatus, selectedUser, selectedDev]);
+  const filteredRecords = useMemo(
+    () =>
+      searchedRecords
+        .filter((r) => selectedEnv === 'All' || r.environment.toUpperCase() === selectedEnv.toUpperCase())
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [searchedRecords, selectedEnv]
+  );
 
   const tabClass = (active: boolean) =>
     `inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
@@ -367,7 +269,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="mb-6 rounded-xl border border-white/10 bg-surface-raised p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
           {/* Search */}
-          <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
+          <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-12">
             <label
               htmlFor="input-top-search"
               className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400"
@@ -381,7 +283,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Service, server, or developer..."
+                placeholder="Search service, note or date (Oct 3)"
                 className="w-full rounded-lg border border-white/15 bg-white/[0.03] py-2 pl-9 pr-9 text-sm text-white placeholder-zinc-400 transition-colors hover:border-white/30 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               />
               {searchQuery && (
@@ -398,49 +300,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="lg:col-span-2">
-            <FilterSelect
-              id="select-filter-env"
-              label="Environment"
-              allLabel="All environments"
-              value={selectedEnv}
-              options={['All', 'SIT', 'UAT', 'Prod'] as const}
-              onChange={setSelectedEnv}
-            />
-          </div>
-
-          <div className="lg:col-span-2">
-            <FilterSelect
-              id="select-filter-status"
-              label="Status"
-              allLabel="All statuses"
-              value={selectedStatus}
-              options={['All', 'SUCCESS', 'PENDING', 'FAILED'] as const}
-              onChange={setSelectedStatus}
-            />
-          </div>
-
-          <div className="lg:col-span-2">
-            <FilterSelect
-              id="select-filter-developer"
-              label="Developer"
-              allLabel="All developers"
-              value={selectedDev}
-              options={developerOptions}
-              onChange={setSelectedDev}
-            />
-          </div>
-
-          <div className="lg:col-span-2">
-            <FilterSelect
-              id="select-filter-user"
-              label="Logged by"
-              allLabel="Anyone"
-              value={selectedUser}
-              options={['All', 'A.Hameed', 'Hanzala'] as const}
-              onChange={setSelectedUser}
-            />
-          </div>
         </div>
 
         {/* Result count + active filter reset */}
@@ -464,8 +323,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="mb-5 flex items-center gap-1 border-b border-white/10 pb-3">
+      {/* ── Section tabs ── */}
+      <div className="mb-4 flex items-center gap-1 border-b border-white/10 pb-3">
         <button id="tab-activity-feed" onClick={() => setActiveTab('feed')} className={tabClass(activeTab === 'feed')}>
           <Layers className="h-4 w-4" />
           Audit Log
@@ -482,18 +341,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           )}
         </button>
-        <span className="flex-1" />
-        <button
-          id="btn-sync-lines"
-          type="button"
-          onClick={() => setShowSyncLines(true)}
-          title="Lines for section 1.2 of the ALARA knowledge index"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white"
-        >
-          <ClipboardList className="h-3.5 w-3.5" />
-          §1.2 lines
-        </button>
       </div>
+
+      {/* ── Environment tabs: Audit Log only (the Drift Matrix compares every
+          environment by design). ── */}
+      {activeTab === 'feed' && (
+        <div
+          role="tablist"
+          aria-label="Filter releases by environment"
+          className="mb-5 flex flex-wrap items-center gap-2"
+        >
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            Environment
+          </span>
+          {ENV_TABS.map((tab) => {
+            const active = selectedEnv === tab.value;
+            return (
+              <button
+                key={tab.value}
+                id={`tab-env-${tab.label.toLowerCase()}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setSelectedEnv(tab.value)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-1.5 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 ${
+                  active
+                    ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-100 shadow-sm shadow-emerald-500/10'
+                    : 'border-white/15 bg-white/[0.03] text-zinc-300 hover:border-white/30 hover:bg-white/[0.08] hover:text-white'
+                }`}
+              >
+                {tab.label}
+                <span
+                  className={`rounded-full px-1.5 py-0.5 font-mono text-[11px] ${
+                    active ? 'bg-emerald-400/20 text-emerald-100' : 'bg-white/10 text-zinc-300'
+                  }`}
+                >
+                  {envCounts[tab.value]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── TAB: Drift matrix ── */}
       {activeTab === 'matrix' && (
@@ -665,7 +554,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onClose={() => setRunbookRecord(null)}
         />
       )}
-      {showSyncLines && <SyncLinesModal records={records} onClose={() => setShowSyncLines(false)} />}
     </div>
   );
 };
