@@ -45,6 +45,9 @@ export interface RoleRiskInput {
   targetHealth: ServerHealth | null;
   toolkitVersion: string | null; // alara_server.sh on the target
   pendingRecords: { service: string; version: string }[]; // PENDING records for the target env on this role
+  // Config/env changes logged in the audit log after the vault file was
+  // uploaded, on the source or target environment (lib/currentVersions.ts).
+  vaultStale?: { env: string; file: 'compose' | 'env'; at: string }[];
   now?: Date;
 }
 
@@ -200,6 +203,16 @@ export function evaluateRoleRisk(input: RoleRiskInput): RiskReport {
       if (newVolumes.length) add('new-volumes', 'high', 'New volume path', `${names(newVolumes)}. ${input.sourceEnv} mounts it, ${input.targetEnv} does not: the new image may expect it. Create the path and add it to the target compose file.`, 'compose');
       if (changedPorts.length) add('changed-ports', 'medium', 'Port mapping differs', `${names(changedPorts)}.`, 'compose');
     }
+  }
+
+  // ── Vault files older than the audit log ──
+  // Image versions follow the records on their own; config and env changes
+  // don't, so the vault copy the checks above read may be out of date.
+  for (const env of [input.sourceEnv, input.targetEnv]) {
+    const stale = (input.vaultStale ?? []).filter((v) => v.env.toUpperCase() === env.toUpperCase());
+    if (!stale.length) continue;
+    const what = stale.map((v) => `${v.file === 'compose' ? 'docker-compose.yml' : 'env files'} (change logged ${v.at.slice(0, 10)})`).join(', ');
+    add(`vault-stale-${env.toUpperCase()}`, 'medium', `Vault may be stale for ${env}`, `${what} is newer in the audit log than in the Configs vault. Re-upload it before generating scripts.`, 'records');
   }
 
   // ── The target as it is now ──

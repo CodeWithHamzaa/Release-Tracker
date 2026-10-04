@@ -12,6 +12,7 @@ import { ReleaseRecord, ReleaseStatus } from './types.js';
 import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
 import { requireAuth } from './auth.js';
 import { findPortConflicts, PortBinding } from './compose.js';
+import { isComposePath, planComposeSync, primaryComposePath } from './composeSync.js';
 import { parseRecordDate } from './recordDate.js';
 import { validateNote } from './releaseNote.js';
 import { parseToolkitOutput } from './toolkitParse.js';
@@ -521,13 +522,14 @@ router.delete('/records/:id', async (req: Request, res: Response) => {
 });
 
 // ── Service catalog ─────────────────────────────────────────────────────────
-// Servers (groups) and services for the Add Record form, plus the host ports
-// each service publishes per environment + host (from docker-compose imports).
-// Local dev without a database has no catalog: GET answers dataSource
+// Servers (groups) and services for the Add Record form, plus the image and
+// host ports each service has per environment. Those are synced from the
+// latest docker-compose.yml in the Config Vault (syncRoleFromVault below), so
+// the catalog is never typed in twice. Services in no compose file can still
+// be added by hand. Local dev without a database has no catalog: GET answers dataSource
 // 'memory' with no services and the UI falls back to config/services.json.
 
 const CATALOG_ENVIRONMENTS = ['SIT', 'UAT', 'Prod'];
-const CATALOG_PROTOCOLS = ['tcp', 'udp', 'sctp'];
 
 function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: string })?.code === 'P2002';
@@ -537,10 +539,6 @@ function cleanLabel(value: unknown, max = 100): string | null {
   if (typeof value !== 'string') return null;
   const v = value.trim();
   return v && v.length <= max ? v : null;
-}
-
-function isPort(n: unknown): n is number {
-  return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 65535;
 }
 
 async function requireCatalogDb(res: Response) {
@@ -558,16 +556,32 @@ router.get('/catalog', async (req: Request, res: Response) => {
   try {
     const prisma = await getPrismaClient();
     if (!prisma) {
-      return res.json({ success: true, dataSource: 'memory', services: [] });
+      return res.json({ success: true, dataSource: 'memory', services: [], syncState: [] });
     }
     const services = await prisma.service.findMany({
       orderBy: [{ server: 'asc' }, { name: 'asc' }],
       include: {
         ports: { orderBy: [{ environment: 'asc' }, { host: 'asc' }, { hostPort: 'asc' }] },
+        deployments: {
+          orderBy: { environment: 'asc' },
+          select: {
+            environment: true,
+            role: true,
+            composeKey: true,
+            containerName: true,
+            image: true,
+            tag: true,
+            syncedAt: true,
+            sourceVersion: { select: { version: true, createdAt: true } },
+          },
+        },
       },
     });
-    res.json({ success: true, dataSource: 'database', services });
+    res.json({ success: true, dataSource: 'database', services, syncState: await composeSyncState(prisma) });
   } catch (err) {
+    if (isMissingVaultSyncSchema(err)) {
+      return res.status(503).json({ error: 'Service Unavailable', message: VAULT_SYNC_SCHEMA_MESSAGE });
+    }
     return sendDbError(res, err, 'load the service catalog');
   }
 });
@@ -607,6 +621,7 @@ router.patch('/catalog/services/:id', async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
+    if (await refuseIfSynced(prisma, req.params.id, res)) return;
     const service = await prisma.service.update({
       where: { id: req.params.id },
       data,
@@ -628,6 +643,7 @@ router.delete('/catalog/services/:id', async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
+    if (await refuseIfSynced(prisma, req.params.id, res)) return;
     await prisma.service.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (err) {
@@ -638,120 +654,239 @@ router.delete('/catalog/services/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Save a parsed docker-compose file: upsert its services and replace their
-// published ports on this environment + host. Ports of services NOT in the
-// file are kept (one host can run several compose files). Host ports shared
-// by two services (in the file, or with already-saved services) are allowed
-// -- reverse-proxy setups do this on purpose -- and returned as `warnings`.
-router.post('/catalog/import', async (req: Request, res: Response) => {
-  const environment = cleanLabel(req.body?.environment);
-  const host = cleanLabel(req.body?.host);
-  const incoming = Array.isArray(req.body?.services) ? req.body.services : null;
-  if (!environment || !CATALOG_ENVIRONMENTS.includes(environment)) {
-    return res.status(400).json({ error: 'Bad Request', message: `environment must be one of ${CATALOG_ENVIRONMENTS.join(', ')}.` });
-  }
-  if (!host) {
-    return res.status(400).json({ error: 'Bad Request', message: 'host is required (max 100 characters).' });
-  }
-  if (!incoming || incoming.length === 0 || incoming.length > 200) {
-    return res.status(400).json({ error: 'Bad Request', message: 'services must list 1-200 services.' });
-  }
+// A service with vault deployments is owned by the vault: renaming or
+// deleting it here would be undone by the next sync.
+async function refuseIfSynced(prisma: any, serviceId: string, res: Response): Promise<boolean> {
+  const synced = await prisma.serviceDeployment.count({ where: { serviceId } });
+  if (!synced) return false;
+  res.status(409).json({
+    error: 'Conflict',
+    message: 'This service is synced from the Config Vault. Change docker-compose.yml on the Configs page instead.',
+  });
+  return true;
+}
 
-  type ImportPort = { hostPort: number; containerPort: number; protocol: string; hostIp: string | null };
-  const services: { server: string; name: string; image: string | null; ports: ImportPort[] }[] = [];
-  for (const raw of incoming) {
-    const server = cleanLabel(raw?.server);
-    const name = cleanLabel(raw?.name);
-    if (!server || !name) {
-      return res.status(400).json({ error: 'Bad Request', message: 'Every service needs a server (group) and name.' });
+// ── Vault -> catalog sync ──────────────────────────────────────────────────
+// The latest docker-compose.yml of an environment + role (parsed by
+// lib/composeSync.ts, with ${VAR}s from that role's .env) replaces that
+// environment's images and published ports in the catalog. Every row it
+// writes carries the vault file + version it came from, so a re-sync replaces
+// its own rows instead of duplicating them. Legacy rows from the old manual
+// import (no source file) are replaced for the services in the file.
+
+// The tables 006_vault_sync.sql adds. Until it has run, Prisma reports a
+// missing table (P2021) or column (P2022).
+function isMissingVaultSyncSchema(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return code === 'P2021' || code === 'P2022';
+}
+const VAULT_SYNC_SCHEMA_MESSAGE = 'The database is missing the vault-sync tables. Run prisma/manual/006_vault_sync.sql in Supabase.';
+
+type SyncOutcome =
+  | {
+      status: 'synced';
+      environment: string;
+      role: string;
+      path: string;
+      version: number;
+      services: number;
+      created: string[];
+      ports: number;
+      warnings: string[];
     }
-    if (services.some((s) => s.name === name && s.server === server)) {
-      return res.status(400).json({ error: 'Bad Request', message: `${name} is listed twice.` });
-    }
-    const ports: ImportPort[] = [];
-    for (const p of Array.isArray(raw.ports) ? raw.ports : []) {
-      const protocol = String(p?.protocol || 'tcp').toLowerCase();
-      if (!isPort(p?.hostPort) || !isPort(p?.containerPort) || !CATALOG_PROTOCOLS.includes(protocol)) {
-        return res.status(400).json({ error: 'Bad Request', message: `${name} has an invalid port.` });
-      }
-      // The same binding listed twice in one service is harmless; keep one.
-      if (!ports.some((q) => q.hostPort === p.hostPort && q.protocol === protocol)) {
-        ports.push({ hostPort: p.hostPort, containerPort: p.containerPort, protocol, hostIp: cleanLabel(p.hostIp) });
-      }
-    }
-    services.push({ server, name, image: cleanLabel(raw.image, 300), ports });
+  | { status: 'failed'; environment: string; role: string; path: string | null; error: string }
+  | { status: 'skipped'; environment: string; role: string; reason: string };
+
+async function latestConfigVersion(db: any, key: { environment: string; role: string; path: string }) {
+  const file = await db.configFile.findUnique({
+    where: { environment_role_path: key },
+    include: { versions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, content: true } } },
+  });
+  return file?.versions[0] ? { file, version: file.versions[0] } : null;
+}
+
+async function syncRoleFromVault(prisma: any, environment: string, role: string): Promise<SyncOutcome> {
+  const siblings = await prisma.configFile.findMany({ where: { environment, role }, select: { path: true } });
+  const path = primaryComposePath(siblings.map((f: any) => f.path));
+  const compose = path ? await latestConfigVersion(prisma, { environment, role, path }) : null;
+  if (!path || !compose) return { status: 'skipped', environment, role, reason: 'No compose file in the vault.' };
+
+  const dotEnv = await latestConfigVersion(prisma, { environment, role, path: '.env' });
+  const catalog = await prisma.service.findMany({ where: { server: role }, select: { name: true } });
+  const plan = planComposeSync({
+    compose: compose.version.content,
+    dotEnv: dotEnv?.version.content ?? null,
+    catalogNames: catalog.map((s: any) => s.name),
+  });
+  const { file, version } = compose;
+  if (!plan.ok) {
+    const error = plan.error ?? 'The compose file could not be read.';
+    await prisma.configFile.update({ where: { id: file.id }, data: { syncError: error.slice(0, 500) } });
+    return { status: 'failed', environment, role, path, error };
   }
 
-  try {
-    const prisma = await requireCatalogDb(res);
-    if (!prisma) return;
-
-    const result = await prisma.$transaction(
-      async (tx: any) => {
-        const keys = services.map((s) => ({ server: s.server, name: s.name }));
-        const existing = await tx.service.findMany({ where: { OR: keys } });
-        const existingKey = new Set(existing.map((s: any) => `${s.server}\u0000${s.name}`));
-        const toCreate = services.filter((s) => !existingKey.has(`${s.server}\u0000${s.name}`));
-        if (toCreate.length > 0) {
-          await tx.service.createMany({
-            data: toCreate.map((s) => ({ server: s.server, name: s.name, image: s.image })),
-            skipDuplicates: true,
-          });
-        }
-        const rows = await tx.service.findMany({ where: { OR: keys } });
-        const idOf = new Map<string, string>(rows.map((s: any) => [`${s.server}\u0000${s.name}`, s.id]));
-        const imageOf = new Map<string, string | null>(rows.map((s: any) => [s.id, s.image]));
-        const ids = [...idOf.values()];
-
-        // Clashes with ports already saved for OTHER services on this host.
-        const others = await tx.servicePort.findMany({
-          where: { environment, host, serviceId: { notIn: ids } },
-          include: { service: { select: { name: true } } },
-        });
-        const clashes = findPortConflicts([
-          ...others.map((p: any): PortBinding => ({ service: p.service.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })),
-          ...services.flatMap((s) => s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol }))),
-        ]);
-
-        for (const s of services) {
-          const id = idOf.get(`${s.server}\u0000${s.name}`)!;
-          if (s.image && imageOf.get(id) !== s.image) {
-            await tx.service.update({ where: { id }, data: { image: s.image } });
-          }
-        }
-        await tx.servicePort.deleteMany({ where: { environment, host, serviceId: { in: ids } } });
-        const portRows = services.flatMap((s) =>
-          s.ports.map((p) => ({ ...p, environment, host, serviceId: idOf.get(`${s.server}\u0000${s.name}`)! }))
-        );
-        if (portRows.length > 0) {
-          await tx.servicePort.createMany({ data: portRows });
-        }
-        return { created: toCreate.map((s) => s.name), ports: portRows.length, warnings: clashes };
-      },
-      // Several round trips through the pooler; the 5s default is tight.
-      { timeout: 20_000, maxWait: 10_000 }
-    );
-
-    res.json({
-      success: true,
-      services: services.length,
-      created: result.created,
-      ports: result.ports,
-      warnings: result.warnings,
-    });
-  } catch (err) {
-    if (isUniqueViolation(err)) {
-      // Only possible while the database still has the old one-service-per-
-      // host-port index from 001.
-      return res.status(409).json({
-        error: 'Conflict',
-        message:
-          'This database still blocks two services on the same host port. Run prisma/manual/003_allow_shared_host_ports.sql in Supabase, then save again.',
+  const host = role; // synced ports are labelled by role; the IP is in the server registry
+  return prisma.$transaction(
+    async (tx: any): Promise<SyncOutcome> => {
+      // A newer version landed while this one was parsed: its own save syncs it.
+      const head = await tx.configFileVersion.findFirst({
+        where: { fileId: file.id },
+        orderBy: { version: 'desc' },
+        select: { id: true },
       });
-    }
-    return sendDbError(res, err, 'import the compose file');
+      if (head?.id !== version.id) return { status: 'skipped', environment, role, reason: 'Superseded by a newer version.' };
+
+      const names = plan.services.map((s) => s.name);
+      const existing = await tx.service.findMany({ where: { server: role, name: { in: names } }, select: { name: true, image: true } });
+      const before = new Map<string, string | null>(existing.map((s: any) => [s.name, s.image]));
+      await tx.service.createMany({
+        data: plan.services.filter((s) => !before.has(s.name)).map((s) => ({ server: role, name: s.name, image: s.image })),
+        skipDuplicates: true,
+      });
+      const rows = await tx.service.findMany({ where: { server: role, name: { in: names } }, select: { id: true, name: true } });
+      const idOf = new Map<string, string>(rows.map((s: any) => [s.name, s.id]));
+      const ids = [...idOf.values()];
+
+      // Per-environment images: replace what this file, or an earlier source
+      // for these services in this environment, produced before.
+      await tx.serviceDeployment.deleteMany({
+        where: { OR: [{ sourceFileId: file.id }, { environment, serviceId: { in: ids } }] },
+      });
+      await tx.serviceDeployment.createMany({
+        data: plan.services.map((s) => ({
+          serviceId: idOf.get(s.name)!,
+          environment,
+          role,
+          composeKey: s.composeKey,
+          containerName: s.containerName,
+          image: s.image,
+          tag: s.tag,
+          sourceFileId: file.id,
+          sourceVersionId: version.id,
+        })),
+      });
+
+      // Ports: drop this file's previous rows, plus legacy manual-import rows
+      // of the same services in this environment (any host label).
+      await tx.servicePort.deleteMany({
+        where: { environment, OR: [{ sourceFileId: file.id }, { sourceFileId: null, serviceId: { in: ids } }] },
+      });
+      const portRows = plan.services.flatMap((s) =>
+        s.ports.map((p) => ({
+          ...p,
+          environment,
+          host,
+          serviceId: idOf.get(s.name)!,
+          sourceFileId: file.id,
+          sourceVersionId: version.id,
+        }))
+      );
+      if (portRows.length > 0) await tx.servicePort.createMany({ data: portRows, skipDuplicates: true });
+
+      // Back-compat: Service.image keeps the most recently synced image.
+      for (const s of plan.services) {
+        if (s.image && before.has(s.name) && before.get(s.name) !== s.image) {
+          await tx.service.update({ where: { id: idOf.get(s.name) }, data: { image: s.image } });
+        }
+      }
+
+      // Shared host ports on this role (fine behind a reverse proxy) are saved
+      // and reported, as the old import did.
+      const others = await tx.servicePort.findMany({
+        where: { environment, host, serviceId: { notIn: ids } },
+        include: { service: { select: { name: true } } },
+      });
+      const clashes = findPortConflicts([
+        ...others.map((p: any): PortBinding => ({ service: p.service.name, environment, host, hostPort: p.hostPort, protocol: p.protocol })),
+        ...plan.services.flatMap((s) =>
+          s.ports.map((p): PortBinding => ({ service: s.name, environment, host, hostPort: p.hostPort, protocol: p.protocol }))
+        ),
+      ]);
+
+      await tx.configFile.update({
+        where: { id: file.id },
+        data: { syncedVersion: version.version, syncedAt: new Date(), syncError: null },
+      });
+      return {
+        status: 'synced',
+        environment,
+        role,
+        path,
+        version: version.version,
+        services: plan.services.length,
+        created: names.filter((n) => !before.has(n)),
+        ports: portRows.length,
+        warnings: [
+          ...plan.warnings,
+          ...clashes.map((c) => `Host port ${c.hostPort}/${c.protocol} is shared by ${c.services.join(', ')}`),
+        ],
+      };
+    },
+    // Several round trips through the pooler; the 5s default is tight.
+    { timeout: 20_000, maxWait: 10_000 }
+  );
+}
+
+// Run after a vault save or delete. Never throws: the vault change already
+// happened and must not be reported as failed because the catalog lagged.
+async function syncAfterVaultChange(prisma: any, environment: string, role: string): Promise<SyncOutcome> {
+  try {
+    return await syncRoleFromVault(prisma, environment, role);
+  } catch (err) {
+    console.error('[vault-sync] failed:', (err as Error)?.name ?? 'Error'); // never log file contents
+    return {
+      status: 'failed',
+      environment,
+      role,
+      path: null,
+      error: isMissingVaultSyncSchema(err)
+        ? VAULT_SYNC_SCHEMA_MESSAGE
+        : 'Saved to the vault, but the catalog sync failed. Use "Resync from vault" on the Infrastructure page.',
+    };
   }
-});
+}
+
+// Sync state of each environment + role's primary compose file, for the
+// badge on the Infrastructure page.
+async function composeSyncState(prisma: any) {
+  const files = await prisma.configFile.findMany({
+    select: {
+      id: true,
+      environment: true,
+      role: true,
+      path: true,
+      syncedVersion: true,
+      syncedAt: true,
+      syncError: true,
+      versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, createdAt: true } },
+    },
+  });
+  const groups = new Map<string, any[]>();
+  for (const f of files) {
+    const key = `${f.environment}\u0000${f.role}`;
+    groups.set(key, [...(groups.get(key) ?? []), f]);
+  }
+  const out = [];
+  for (const list of groups.values()) {
+    const path = primaryComposePath(list.map((f: any) => f.path));
+    const f = list.find((x: any) => x.path === path);
+    if (!f) continue;
+    out.push({
+      fileId: f.id,
+      environment: f.environment,
+      role: f.role,
+      path: f.path,
+      latestVersion: f.versions[0]?.version ?? null,
+      latestAt: f.versions[0]?.createdAt ?? null,
+      syncedVersion: f.syncedVersion,
+      syncedAt: f.syncedAt,
+      syncError: f.syncError,
+    });
+  }
+  return out.sort(
+    (a, b) => (ENV_ORDER[a.environment] ?? 9) - (ENV_ORDER[b.environment] ?? 9) || a.role.localeCompare(b.role)
+  );
+}
 
 // ── Server registry ────────────────────────────────────────────────────────
 // One row per environment + role (seeded by prisma/manual/002_server_registry.sql).
@@ -941,6 +1076,11 @@ router.post('/configs', async (req: Request, res: Response) => {
       });
       return { file, version, unchanged: false, previousContent: latest?.content ?? null };
     });
+    // Single source of truth: a compose file, or the .env it reads ${VAR}s
+    // from, feeds the catalog. Awaited, not fire-and-forget: Vercel freezes the
+    // function once the response is sent. Re-saving an unchanged file still
+    // syncs, so a re-upload retries a sync that failed before.
+    const sync = isComposePath(path) || path === '.env' ? await syncAfterVaultChange(prisma, environment, role) : null;
     res.status(result.unchanged ? 200 : 201).json({
       success: true,
       unchanged: result.unchanged,
@@ -948,6 +1088,7 @@ router.post('/configs', async (req: Request, res: Response) => {
       version: result.version,
       // Lets the client list image-tag changes without a second request.
       previousContent: result.previousContent,
+      sync,
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
@@ -957,12 +1098,37 @@ router.post('/configs', async (req: Request, res: Response) => {
   }
 });
 
+// Re-apply the vault to the catalog: every environment + role, or one when
+// the body names it. Backfills files saved before the sync existed and
+// retries failed syncs.
+router.post('/configs/sync', async (req: Request, res: Response) => {
+  const environment = cleanLabel(req.body?.environment);
+  const role = cleanLabel(req.body?.role);
+  try {
+    const prisma = await requireCatalogDb(res);
+    if (!prisma) return;
+    const pairs: { environment: string; role: string }[] =
+      environment && role
+        ? [{ environment, role }]
+        : await prisma.configFile.findMany({ distinct: ['environment', 'role'], select: { environment: true, role: true } });
+    const results: SyncOutcome[] = [];
+    // Sequential: each sync holds one pooled connection for its transaction.
+    for (const p of pairs) results.push(await syncAfterVaultChange(prisma, p.environment, p.role));
+    res.json({ success: true, results });
+  } catch (err) {
+    return sendDbError(res, err, 'sync the catalog from the vault');
+  }
+});
+
 router.delete('/configs/:fileId', async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
-    await prisma.configFile.delete({ where: { id: req.params.fileId } });
-    res.json({ success: true });
+    // Deleting a compose file cascades to the deployments and ports it
+    // produced; another compose file of that role (if any) then takes over.
+    const file = await prisma.configFile.delete({ where: { id: req.params.fileId } });
+    const sync = isComposePath(file.path) || file.path === '.env' ? await syncAfterVaultChange(prisma, file.environment, file.role) : null;
+    res.json({ success: true, sync });
   } catch (err) {
     if (isRecordNotFound(err)) return res.status(404).json({ error: 'Not Found', message: 'File not found.' });
     return sendDbError(res, err, 'delete the config file');

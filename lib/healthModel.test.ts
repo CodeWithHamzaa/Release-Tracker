@@ -52,7 +52,8 @@ test('versionChecks: running vs recorded vs vault, loose v-prefix match', () => 
   const records = [
     rec({ service: 'memento', version: 'v1.1.8' }), // same as running (v1.1.8)
     rec({ service: 'retriever_api_service', version: '7aa11111' }), // server runs 8bd276a2
-    rec({ service: 'retriever_api_service', version: '8bd276a2', status: 'PENDING', createdAt: '2026-10-01T00:00:00Z' }), // ignored
+    rec({ service: 'retriever_api_service', version: '9ff00000', status: 'FAILED', createdAt: '2026-10-01T00:00:00Z' }), // ignored
+    rec({ service: 'sent-lang', version: '2.0.0', server: 'ChatBot / NLU', status: 'FAILED' }), // ignored
   ];
   const compose = summarizeCompose('services:\n  memento:\n    image: registry.local/memento:1.1.7\n');
   const checks = versionChecks((status.parsed as any).containers, records, compose);
@@ -61,6 +62,14 @@ test('versionChecks: running vs recorded vs vault, loose v-prefix match', () => 
   assert.deepEqual([by.retriever_api_service.recorded, by.retriever_api_service.recordMismatch], ['7aa11111', true]);
   assert.equal(by['sent-lang'].recorded, null);
   assert.ok(sameVersion('v2.4.2', '2.4.2'));
+
+  // PENDING = deployed, awaiting the bank's test: it counts like SUCCESS.
+  const pending = versionChecks((status.parsed as any).containers, [
+    ...records,
+    rec({ service: 'retriever_api_service', version: '8bd276a2', status: 'PENDING', createdAt: '2026-10-01T00:00:00Z' }),
+  ], compose);
+  const after = pending.find((c) => c.container === 'retriever_api_service')!;
+  assert.deepEqual([after.recorded, after.recordMismatch], ['8bd276a2', false]);
 });
 
 test('containerFor matches by name, compose service label, then image repo', () => {

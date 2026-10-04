@@ -67,3 +67,18 @@ test('canProceed: blockers stop everything, high findings need a tick, medium ne
   assert.match(canProceed([f('a', 'high'), f('b', 'high')], new Set(['a'])).reason!, /1 high-risk/);
   assert.equal(canProceed([f('a', 'high')], new Set(['a'])).ok, true);
 });
+
+test('stale-vault flags for the source and target reach the risk input', () => {
+  const stale = [
+    { environment: 'SIT', role: 'ChatBot / NLU', composePath: 'docker-compose.yml', composeVersion: 2, buildsSince: 3, configStale: '2026-10-02T09:00:00.000Z', envStale: null },
+    { environment: 'UAT', role: 'ChatBot / NLU', composePath: 'docker-compose.yml', composeVersion: 1, buildsSince: 0, configStale: null, envStale: '2026-10-01T09:00:00.000Z' },
+    { environment: 'UAT', role: 'Bot-Builder', composePath: null, composeVersion: null, buildsSince: 0, configStale: '2026-10-01T09:00:00.000Z', envStale: null },
+  ];
+  const i = buildRoleRiskInput(args({ targetEnv: 'UAT', stale }));
+  assert.deepEqual(i.vaultStale, [
+    { env: 'SIT', file: 'compose', at: '2026-10-02T09:00:00.000Z' },
+    { env: 'UAT', file: 'env', at: '2026-10-01T09:00:00.000Z' },
+  ]);
+  // Build records newer than the compose file are normal now: no finding.
+  assert.ok(!evaluateRoleRisk(buildRoleRiskInput(args({ targetEnv: 'UAT' }))).findings.some((f) => f.id.includes('vault-stale')));
+});

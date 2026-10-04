@@ -9,8 +9,11 @@ import { serverHealth, HealthReportMeta } from './healthModel.js';
 import type { ComposeServiceSummary } from './configDrift.js';
 import type { RoleRiskInput } from './riskEngine.js';
 import type { ReleaseRecord } from './types.js';
+import type { StaleFlags } from './currentVersions.js';
 
 // role -> environment -> parsed compose services (src/useConfigs.ts ComposeIndex fits this).
+// Pass the index with current versions applied (src/useCurrentVersions.ts) so
+// image tags follow the audit log rather than the last compose upload.
 export type ComposeLookup = Record<string, Record<string, { summaries: ComposeServiceSummary[] }>>;
 
 const sameEnv = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
@@ -24,6 +27,7 @@ export function buildRoleRiskInput(args: {
   compose: ComposeLookup;
   records: Pick<ReleaseRecord, 'environment' | 'server' | 'service' | 'version' | 'status'>[];
   ignoreKeys?: string;
+  stale?: StaleFlags[]; // stale-vault flags per environment + role
   now?: Date;
 }): RoleRiskInput {
   const { role, sourceEnv, targetEnv } = args;
@@ -66,6 +70,12 @@ export function buildRoleRiskInput(args: {
     pendingRecords: args.records
       .filter((r) => r.server === role && sameEnv(r.environment, targetEnv) && String(r.status).toUpperCase() === 'PENDING')
       .map((r) => ({ service: r.service, version: r.version })),
+    vaultStale: (args.stale ?? [])
+      .filter((f) => f.role === role && (sameEnv(f.environment, sourceEnv) || sameEnv(f.environment, targetEnv)))
+      .flatMap((f) => [
+        ...(f.configStale ? [{ env: f.environment, file: 'compose' as const, at: f.configStale }] : []),
+        ...(f.envStale ? [{ env: f.environment, file: 'env' as const, at: f.envStale }] : []),
+      ]),
     now: args.now,
   };
 }

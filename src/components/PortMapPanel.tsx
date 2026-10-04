@@ -18,8 +18,9 @@ interface PortRow {
   shared: boolean; // another service on this env + host publishes the same host port
 }
 
-// Host-port map built from the compose files imported on this page: which
-// service publishes which port, on which host, in which environment. Shared
+// Host-port map synced from the Config Vault compose files: which service
+// publishes which port, on which role (host), in which environment. Rows from
+// the old manual import keep their host label until the first sync. Shared
 // ports are flagged (fine behind a reverse proxy, otherwise one container
 // will not start).
 export const PortMapPanel: React.FC<{ services: CatalogService[] }> = ({ services }) => {

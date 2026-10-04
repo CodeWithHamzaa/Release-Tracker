@@ -149,3 +149,17 @@ test('classifyCompareItems reads every CRITICAL line of the real checklist', () 
   assert.ok(kinds.includes('image-deploy') && kinds.includes('image-target-only') && kinds.includes('env-add') && kinds.includes('env-secret-differs'));
   assert.equal(kinds.includes('other'), false);
 });
+
+test('a config or env change logged after the vault upload flags the vault as stale', () => {
+  const r = evaluateRoleRisk(base({
+    vaultStale: [
+      { env: 'UAT', file: 'env', at: '2026-10-02T09:00:00Z' },
+      { env: 'SIT', file: 'compose', at: '2026-10-01T09:00:00Z' },
+      { env: 'Prod', file: 'env', at: '2026-10-01T09:00:00Z' }, // not part of this promotion
+    ],
+  }));
+  assert.equal(sev(r, 'vault-stale-UAT'), 'medium');
+  assert.equal(sev(r, 'vault-stale-SIT'), 'medium');
+  assert.equal(sev(r, 'vault-stale-PROD'), undefined);
+  assert.match(r.findings.find((f) => f.id.endsWith(':vault-stale-UAT'))!.detail, /env files .*2026-10-02/);
+});
