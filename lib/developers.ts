@@ -1,4 +1,7 @@
-import developersConfig from '@/config/developers.json';
+// The browser and the API server (lib/app.ts) both load this file. On Vercel
+// it runs under plain Node ESM, which knows no '@/...' alias and needs the
+// JSON import attribute, so keep this import relative with `type: 'json'`.
+import developersConfig from '../config/developers.json' with { type: 'json' };
 
 // Used only if config/developers.json is missing, empty, or malformed, so the
 // Add/Edit forms always have at least one selectable, submittable option.
