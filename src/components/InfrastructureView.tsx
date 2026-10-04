@@ -4,18 +4,18 @@ import {
   AlertTriangle,
   Network,
   CheckCircle2,
-  FileCode2,
-  Loader2,
+  FolderLock,
   Pencil,
   Plus,
   RefreshCw,
   Trash2,
   X,
 } from 'lucide-react';
-import { parseCompose, findPortConflicts, ComposeParseResult, PortBinding } from '@/lib/compose';
+import type { StaleFlags, VersionRecord } from '@/lib/currentVersions';
 import { apiFetch, apiErrorMessage } from '../api';
-import type { CatalogService } from '../useCatalog';
+import type { CatalogService, ComposeSyncState } from '../useCatalog';
 import type { ServerNode } from '../useServers';
+import { serviceCurrentVersion } from '../useCurrentVersions';
 import { ServersPanel } from './ServersPanel';
 import { PortMapPanel } from './PortMapPanel';
 import { CommonSyncPanel } from './CommonSyncPanel';
@@ -30,6 +30,10 @@ interface InfrastructureViewProps {
   servers: ServerNode[];
   serversWarning: string | null;
   onReloadServers: () => Promise<void> | void;
+  syncState: ComposeSyncState[];
+  staleFlags: StaleFlags[];
+  records: VersionRecord[];
+  onResync: () => Promise<string[]>;
 }
 
 const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
@@ -46,15 +50,6 @@ const primaryButtonClass =
 const portLabel = (p: { hostPort: number; containerPort: number; protocol: string }) =>
   `${p.hostPort}→${p.containerPort}${p.protocol === 'tcp' ? '' : '/' + p.protocol}`;
 
-function parseVars(text: string): Record<string, string> {
-  const vars: Record<string, string> = {};
-  for (const line of text.split('\n')) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-    if (m) vars[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
-  }
-  return vars;
-}
-
 function Message({ kind, children }: { kind: 'error' | 'ok' | 'warn'; children: React.ReactNode }) {
   const styles = {
     error: 'border-rose-800/70 bg-rose-950/40 text-rose-300',
@@ -70,339 +65,101 @@ function Message({ kind, children }: { kind: 'error' | 'ok' | 'warn'; children: 
   );
 }
 
-// ── Import docker-compose ───────────────────────────────────────────────────
+// ── Vault sync ──────────────────────────────────────────────────────────────
+// Services, images and ports are not typed in here any more: each upload of
+// docker-compose.yml (or its .env) on the Configs page syncs them on the
+// server. This badge shows how far each environment + role has synced.
 
-interface PreviewRow {
-  name: string;
-  image: string | null;
-  group: string;
-  include: boolean;
-  inCatalog: boolean;
-}
+const ENV_ORDER = ['SIT', 'UAT', 'Prod'];
+const day = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
 
-const ComposeImport: React.FC<{
-  services: CatalogService[];
-  groups: string[];
-  servers: ServerNode[];
-  onSaved: () => Promise<void> | void;
-}> = ({ services, groups, servers, onSaved }) => {
-  const [environment, setEnvironment] = useState<string>('SIT');
-  const [host, setHost] = useState('');
-  const [yamlText, setYamlText] = useState('');
-  const [varsText, setVarsText] = useState('');
-  const [showVars, setShowVars] = useState(false);
-  const [parsed, setParsed] = useState<ComposeParseResult | null>(null);
-  const [rows, setRows] = useState<PreviewRow[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+const VaultSyncBadge: React.FC<{
+  syncState: ComposeSyncState[];
+  staleFlags: StaleFlags[];
+  editable: boolean;
+  onResync: () => Promise<string[]>;
+}> = ({ syncState, staleFlags, editable, onResync }) => {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  // Suggest registry servers for the chosen environment ("ChatBot 10.42.42.250"),
-  // then any host label already used by an earlier import.
-  const knownHosts = useMemo(() => {
-    const fromRegistry = servers
-      .filter((s) => s.environment === environment && s.ip)
-      .map((s) => `${s.role === 'ChatBot / NLU' ? 'ChatBot' : s.role} ${s.ip}`);
-    const fromImports = services.flatMap((s) => s.ports.filter((p) => p.environment === environment).map((p) => p.host));
-    return [...new Set([...fromRegistry, ...fromImports])];
-  }, [services, servers, environment]);
-
-  const handleParse = () => {
-    setError(null);
-    setSaved(null);
-    const result = parseCompose(yamlText, parseVars(varsText));
-    setParsed(result);
-    setRows(
-      result.services.map((s) => {
-        const match = services.find((c) => c.name === s.name);
-        return { name: s.name, image: s.image, group: match?.server || '', include: true, inCatalog: !!match };
-      })
-    );
-  };
-
-  // Discard the pasted file and its preview to start on another one.
-  // Environment and host label stay, since the next file is often the same host.
-  const handleClear = () => {
-    setYamlText('');
-    setVarsText('');
-    setParsed(null);
-    setRows([]);
-    setError(null);
-    setSaved(null);
-  };
-
-  // Port clashes for the rows being imported: within the file, and against
-  // ports already saved on this environment + host by services not in the file.
-  const conflicts = useMemo(() => {
-    if (!parsed || !host.trim()) return [];
-    const h = host.trim();
-    const included = rows.filter((r) => r.include).map((r) => r.name);
-    const bindings: PortBinding[] = [];
-    for (const s of services) {
-      if (included.includes(s.name)) continue;
-      for (const p of s.ports) {
-        if (p.environment === environment && p.host === h) {
-          bindings.push({ service: s.name, environment, host: h, hostPort: p.hostPort, protocol: p.protocol });
-        }
-      }
-    }
-    for (const s of parsed.services) {
-      if (!included.includes(s.name)) continue;
-      for (const p of s.ports) {
-        bindings.push({ service: s.name, environment, host: h, hostPort: p.hostPort, protocol: p.protocol });
-      }
-    }
-    return findPortConflicts(bindings);
-  }, [parsed, rows, services, environment, host]);
-
-  const conflictFor = (service: string, hostPort: number, protocol: string) =>
-    conflicts.find((c) => c.hostPort === hostPort && c.protocol === protocol && c.services.includes(service));
-
-  const includedRows = rows.filter((r) => r.include);
-  const missingGroup = includedRows.some((r) => !r.group.trim());
-  const canSave =
-    !!parsed && includedRows.length > 0 && !!host.trim() && !missingGroup && !isSaving;
-
-  const handleSave = async () => {
-    if (!parsed) return;
-    setIsSaving(true);
-    setError(null);
-    setSaved(null);
+  const resync = async () => {
+    setBusy(true);
+    setResult(null);
     try {
-      const payload = {
-        environment,
-        host: host.trim(),
-        services: includedRows.map((r) => {
-          const s = parsed.services.find((x) => x.name === r.name)!;
-          return { server: r.group.trim(), name: r.name, image: s.image, ports: s.ports };
-        }),
-      };
-      const res = await apiFetch('/api/catalog/import', { method: 'POST', body: JSON.stringify(payload) });
-      if (!res.ok) {
-        setError(await apiErrorMessage(res, 'Import failed'));
-        return;
-      }
-      const data = await res.json();
-      const shared = Array.isArray(data.warnings) ? data.warnings.length : 0;
-      setSaved(
-        `Saved ${data.services} service(s) and ${data.ports} port(s) for ${environment} / ${host.trim()}` +
-          (data.created?.length ? `. New services: ${data.created.join(', ')}` : '') +
-          (shared ? `. ${shared} shared host port(s) saved with a warning.` : '.')
-      );
-      setParsed(null);
-      setRows([]);
-      setYamlText('');
-      await onSaved();
-    } catch {
-      setError('Could not reach the API. Nothing was saved.');
+      const failed = await onResync();
+      setResult(failed.length ? { kind: 'error', text: failed.join(' · ') } : { kind: 'ok', text: 'Catalog re-synced from the vault.' });
+    } catch (e: any) {
+      setResult({ kind: 'error', text: e.message });
     } finally {
-      setIsSaving(false);
+      setBusy(false);
     }
   };
+
+  const flagFor = (s: ComposeSyncState) => staleFlags.find((f) => f.environment === s.environment && f.role === s.role);
 
   return (
-    <section className={`${cardClass} p-5 sm:p-6 space-y-4`}>
-      <div className="flex items-center gap-2">
-        <FileCode2 className="h-4 w-4 text-emerald-400" />
-        <h2 className="text-sm font-semibold text-white">Import docker-compose.yml</h2>
-      </div>
-      <p className="text-xs text-zinc-400">
-        Paste a compose file from one host. Parsing happens in your browser; only service names, images and
-        published ports are saved. Other variables and secrets in the file are never sent.
-      </p>
-
-      <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
-        <div>
-          <label htmlFor="import-env" className={labelClass}>Environment</label>
-          <select id="import-env" value={environment} onChange={(e) => setEnvironment(e.target.value)} className={inputClass}>
-            {ENVIRONMENTS.map((env) => (
-              <option key={env} value={env}>{env}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="import-host" className={labelClass}>Host label</label>
-          <input
-            id="import-host"
-            list="known-hosts"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="e.g. sit-app-01 or 10.0.1.15"
-            className={inputClass}
-          />
-          <datalist id="known-hosts">
-            {knownHosts.map((h) => <option key={h} value={h} />)}
-          </datalist>
-        </div>
-      </div>
-
-      <div>
-        <label htmlFor="import-yaml" className={labelClass}>docker-compose.yml</label>
-        <textarea
-          id="import-yaml"
-          value={yamlText}
-          onChange={(e) => setYamlText(e.target.value)}
-          rows={10}
-          spellCheck={false}
-          placeholder={'services:\n  nginx:\n    image: nginx:1.25\n    ports:\n      - "80:80"'}
-          className={`${inputClass} font-mono text-xs`}
-        />
-      </div>
-
-      <div>
-        <button type="button" onClick={() => setShowVars((v) => !v)} className="text-xs text-zinc-300 hover:text-emerald-400">
-          {showVars ? '− Hide' : '+ Add'} variables for ${'{'}VAR{'}'} ports (optional, KEY=VALUE lines)
-        </button>
-        {showVars && (
-          <textarea
-            aria-label="Variables"
-            value={varsText}
-            onChange={(e) => setVarsText(e.target.value)}
-            rows={3}
-            spellCheck={false}
-            placeholder={'NGINX_PORT=8080'}
-            className={`${inputClass} mt-2 font-mono text-xs`}
-          />
-        )}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={handleParse} disabled={!yamlText.trim()} className={primaryButtonClass}>
-          Parse
-        </button>
-        {(yamlText || varsText || parsed || error || saved) && (
-          <button type="button" id="btn-import-clear" onClick={handleClear} className={buttonClass}>
-            <X className="h-3.5 w-3.5" />
-            Clear
+    <section className={`${cardClass} p-5 sm:p-6 space-y-3`} aria-label="Vault sync">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+          <FolderLock className="h-3.5 w-3.5" />
+          Services and Ports are automatically synced from the latest Config Vault version.
+        </span>
+        <span className="flex-1" />
+        {editable && (
+          <button type="button" onClick={resync} disabled={busy} className={buttonClass}>
+            <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
+            Resync from vault
           </button>
         )}
-        {parsed && (
-          <span className="text-xs text-zinc-400">
-            {parsed.services.length} service(s) found
-            {!host.trim() && ' · enter a host label to check shared ports and save'}
-          </span>
-        )}
       </div>
-
-      {parsed && parsed.warnings.length > 0 && (
-        <Message kind="warn">
-          <ul className="list-disc space-y-0.5 pl-4">
-            {parsed.warnings.map((w, i) => <li key={i}>{w}</li>)}
-          </ul>
-        </Message>
+      <p className="text-xs text-zinc-400">
+        Upload docker-compose.yml and .env on the Configs page. Versions then follow the audit log: a release record
+        (SUCCESS or PENDING) newer than the compose upload sets the current version.
+      </p>
+      {syncState.length === 0 ? (
+        <p className="text-xs text-zinc-400">No compose files in the vault yet. Upload them on the Configs page.</p>
+      ) : (
+        <ul className="grid gap-1.5 text-xs sm:grid-cols-2">
+          {[...syncState]
+            .sort((a, b) => ENV_ORDER.indexOf(a.environment) - ENV_ORDER.indexOf(b.environment) || a.role.localeCompare(b.role))
+            .map((s) => {
+              const stale = s.syncedVersion !== s.latestVersion;
+              const flag = flagFor(s);
+              return (
+                <li key={s.fileId} className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5">
+                  <div className={s.syncError || stale ? 'text-amber-300' : 'text-zinc-200'}>
+                    <span className="font-semibold">{s.environment} / {s.role}</span>{' '}
+                    <span className="font-mono text-zinc-400">{s.path} v{s.latestVersion}</span>
+                    {s.syncError
+                      ? ` · not synced: ${s.syncError}`
+                      : stale
+                        ? ` · synced v${s.syncedVersion ?? '–'}, press Resync`
+                        : ' · synced'}
+                  </div>
+                  {flag && flag.buildsSince > 0 && (
+                    <div className="text-zinc-400">{flag.buildsSince} build(s) logged since; versions shown from the audit log.</div>
+                  )}
+                  {flag?.configStale && (
+                    <div className="text-amber-300">Config change logged {day(flag.configStale)}: docker-compose.yml may be stale, re-upload it.</div>
+                  )}
+                  {flag?.envStale && (
+                    <div className="text-amber-300">Env change logged {day(flag.envStale)}: env files may be stale, re-upload them.</div>
+                  )}
+                </li>
+              );
+            })}
+        </ul>
       )}
-
-      {conflicts.length > 0 && (
-        <Message kind="warn">
-          <p className="font-semibold">Shared host ports on {environment} / {host.trim()}</p>
-          <p className="mt-0.5">Two services publish the same port. Fine behind a reverse proxy; otherwise one container will fail to start. You can still save.</p>
-          <ul className="mt-1 space-y-0.5">
-            {conflicts.map((c) => (
-              <li key={`${c.hostPort}/${c.protocol}`}>
-                {c.hostPort}/{c.protocol}: {c.services.join(', ')}
-              </li>
-            ))}
-          </ul>
-        </Message>
-      )}
-
-      {rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-white/15">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-white/[0.03] text-zinc-300">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Save</th>
-                <th className="px-3 py-2 font-semibold">Service</th>
-                <th className="px-3 py-2 font-semibold">Group</th>
-                <th className="px-3 py-2 font-semibold">Image</th>
-                <th className="px-3 py-2 font-semibold">Host ports</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {rows.map((row, i) => {
-                const svc = parsed!.services.find((s) => s.name === row.name)!;
-                const update = (patch: Partial<PreviewRow>) =>
-                  setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-                return (
-                  <tr key={row.name} className={row.include ? '' : 'opacity-50'}>
-                    <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Save ${row.name}`}
-                        checked={row.include}
-                        onChange={(e) => update({ include: e.target.checked })}
-                        className="accent-emerald-500"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="font-mono text-white">{row.name}</div>
-                      <span className={`text-[10px] ${row.inCatalog ? 'text-zinc-400' : 'text-sky-400'}`}>
-                        {row.inCatalog ? 'known' : 'new'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 min-w-[150px]">
-                      <input
-                        list="catalog-groups"
-                        aria-label={`Group for ${row.name}`}
-                        value={row.group}
-                        onChange={(e) => update({ group: e.target.value })}
-                        placeholder="Pick or type a group"
-                        className={`${inputClass} py-1 text-xs ${row.include && !row.group.trim() ? 'border-amber-600' : ''}`}
-                      />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-zinc-300 break-all">{row.image || '—'}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {svc.ports.map((p) => {
-                          const clash = row.include && conflictFor(row.name, p.hostPort, p.protocol);
-                          return (
-                            <span
-                              key={`${p.hostPort}/${p.protocol}`}
-                              title={clash ? `Also used by ${clash.services.filter((n) => n !== row.name).join(', ')}` : undefined}
-                              className={`rounded-md border px-1.5 py-0.5 font-mono ${
-                                clash
-                                  ? 'border-amber-700 bg-amber-950/50 text-amber-300'
-                                  : 'border-white/15 bg-white/[0.03] text-zinc-200'
-                              }`}
-                            >
-                              {portLabel(p)}
-                            </span>
-                          );
-                        })}
-                        {svc.ports.length === 0 && <span className="text-zinc-400">none published</span>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <datalist id="catalog-groups">
-            {groups.map((g) => <option key={g} value={g} />)}
-          </datalist>
-        </div>
-      )}
-
-      {missingGroup && <p className="text-xs text-amber-400">Every selected service needs a group.</p>}
-      {error && <Message kind="error">{error}</Message>}
-      {saved && <Message kind="ok">{saved}</Message>}
-
-      {rows.length > 0 && (
-        <button type="button" onClick={handleSave} disabled={!canSave} className={primaryButtonClass}>
-          {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-          Save {includedRows.length} service(s) to {environment} / {host.trim() || '…'}
-          {conflicts.length > 0 && ` (${conflicts.length} port warning${conflicts.length === 1 ? '' : 's'})`}
-        </button>
-      )}
+      {result && <Message kind={result.kind}>{result.text}</Message>}
     </section>
   );
 };
 
 // ── Infrastructure page ─────────────────────────────────────────────────────
 
-// Meta-data only: where each service runs (server registry), how services are
-// grouped, and which ports they publish. What version is deployed lives on the
-// Dashboard (Drift Matrix) and in the Configs vault, not here.
+// Where each service runs (server registry), how services are grouped, which
+// ports they publish and which version each environment runs. All of it comes
+// from the Config Vault and the audit log; nothing here is a second copy.
 export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
   services,
   editable,
@@ -412,6 +169,10 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
   servers,
   serversWarning,
   onReloadServers,
+  syncState,
+  staleFlags,
+  records,
+  onResync,
 }) => {
   const [newGroup, setNewGroup] = useState('');
   const [newName, setNewName] = useState('');
@@ -425,6 +186,11 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
     for (const s of services) map.set(s.server, [...(map.get(s.server) || []), s]);
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [services]);
+
+  // Synced services belong to the vault: edit docker-compose.yml, not this list.
+  const synced = (s: CatalogService) => (s.deployments?.length ?? 0) > 0;
+  const sortedDeployments = (s: CatalogService) =>
+    [...(s.deployments ?? [])].sort((a, b) => ENV_ORDER.indexOf(a.environment) - ENV_ORDER.indexOf(b.environment));
 
   const run = async (request: () => Promise<Response>, failure: string) => {
     setBusy(true);
@@ -492,9 +258,15 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
       {warning && <Message kind="warn">{warning}</Message>}
       {error && <Message kind="error">{error}</Message>}
 
+      <VaultSyncBadge syncState={syncState} staleFlags={staleFlags} editable={editable} onResync={onResync} />
+
       {editable && (
         <>
           <form onSubmit={handleAdd} className={`${cardClass} p-5 sm:p-6 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end`}>
+            <p className="text-xs text-zinc-400 sm:col-span-3">
+              Only for services that are in no compose file (they still need a name in the Add Record form). Services in a
+              vault compose file are added and updated by the sync.
+            </p>
             <div>
               <label htmlFor="new-group" className={labelClass}>Group</label>
               <input
@@ -526,8 +298,6 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
               Add service
             </button>
           </form>
-
-          <ComposeImport services={services} groups={groups} servers={servers} onSaved={onReload} />
         </>
       )}
 
@@ -570,8 +340,46 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
                 ) : (
                   <li key={s.id} className="flex items-start justify-between gap-3 py-2">
                     <div className="min-w-0">
-                      <div className="font-mono text-sm text-zinc-200">{s.name}</div>
-                      {s.image && <div className="truncate font-mono text-[11px] text-zinc-400">{s.image}</div>}
+                      <div className="font-mono text-sm text-zinc-200">
+                        {s.name}
+                        {synced(s) && <span className="ml-2 font-sans text-[10px] text-emerald-400">vault</span>}
+                      </div>
+                      {synced(s) ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {sortedDeployments(s).map((d) => {
+                            const cur = serviceCurrentVersion(s, d, records);
+                            const from =
+                              cur.source === 'record'
+                                ? `log ${day(cur.at)} ${cur.status}`
+                                : `vault v${cur.vaultVersion ?? '?'}`;
+                            const title = [
+                              d.image ? `Compose image: ${d.image}` : null,
+                              cur.superseded
+                                ? `Superseded ${cur.superseded.source === 'vault' ? 'compose tag' : 'record'}: ${cur.superseded.version ?? '—'}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join('\n');
+                            return (
+                              <span
+                                key={d.environment}
+                                title={title || undefined}
+                                // Amber only when a newer compose upload overrode a logged
+                                // build: a record ahead of the vault file is normal.
+                                className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${
+                                  cur.superseded?.source === 'record'
+                                    ? 'border-amber-700/70 bg-amber-950/30 text-amber-200'
+                                    : 'border-white/15 bg-white/[0.03] text-zinc-200'
+                                }`}
+                              >
+                                {d.environment} {cur.version ?? '—'} <span className="font-sans text-zinc-400">· {from}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        s.image && <div className="truncate font-mono text-[11px] text-zinc-400">{s.image}</div>
+                      )}
                       {s.ports.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {s.ports.map((p) => (
@@ -585,7 +393,7 @@ export const InfrastructureView: React.FC<InfrastructureViewProps> = ({
                         </div>
                       )}
                     </div>
-                    {editable && (
+                    {editable && !synced(s) && (
                       <div className="flex flex-shrink-0 gap-1">
                         <button
                           type="button"

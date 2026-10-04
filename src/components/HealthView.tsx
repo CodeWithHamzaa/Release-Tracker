@@ -33,6 +33,7 @@ import type { HealthApi, UploadOutcome } from '../useHealth';
 import type { ServerNode } from '../useServers';
 import type { RiskReport } from '@/lib/riskEngine';
 import type { ComposeIndex } from '../useConfigs';
+import type { StaleFlags } from '@/lib/currentVersions';
 
 const ENVS = ['SIT', 'UAT', 'Prod'] as const;
 const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
@@ -271,8 +272,8 @@ const ServerDetail: React.FC<{
                 <tr>
                   <th className="px-3 py-2 font-semibold">Service</th>
                   <th className="px-3 py-2 font-semibold">Running</th>
-                  <th className="px-3 py-2 font-semibold">Recorded (last SUCCESS)</th>
-                  <th className="px-3 py-2 font-semibold">Config vault</th>
+                  <th className="px-3 py-2 font-semibold">Recorded (last SUCCESS / PENDING)</th>
+                  <th className="px-3 py-2 font-semibold" title="The vault compose tag, or a newer release record">Expected (vault / audit log)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10 font-mono">
@@ -414,7 +415,7 @@ const PromotionModal: React.FC<{
   );
 };
 
-const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[]; records: ReleaseRecord[]; composeIndex: ComposeIndex }> = ({ reports, servers, records, composeIndex }) => {
+const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[]; records: ReleaseRecord[]; composeIndex: ComposeIndex; staleFlags: StaleFlags[] }> = ({ reports, servers, records, composeIndex, staleFlags }) => {
   const snapshots = reports.filter((r) => r.kind === 'snapshot');
   const [role, setRole] = useState<string>('ChatBot / NLU');
   const [source, setSource] = useState('SIT');
@@ -437,8 +438,8 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
   }
 
   const risk = useMemo(
-    () => evaluateRoleRisk(buildRoleRiskInput({ role, sourceEnv: source, targetEnv: target, reports, servers, compose: composeIndex, records, ignoreKeys: ignore })),
-    [role, source, target, reports, servers, composeIndex, records, ignore]
+    () => evaluateRoleRisk(buildRoleRiskInput({ role, sourceEnv: source, targetEnv: target, reports, servers, compose: composeIndex, records, ignoreKeys: ignore, stale: staleFlags })),
+    [role, source, target, reports, servers, composeIndex, records, ignore, staleFlags]
   );
 
   const list = (title: string, items: string[], tone: string) =>
@@ -625,10 +626,11 @@ export const HealthView: React.FC<{
   health: HealthApi;
   records: ReleaseRecord[];
   servers: ServerNode[];
-  composeIndex: ComposeIndex;
+  composeIndex: ComposeIndex; // vault compose with current versions applied (src/useCurrentVersions.ts)
+  staleFlags: StaleFlags[];
   onReloadServers: () => Promise<void> | void;
   onReceiptApplied: (updated: ReleaseRecord[], created: ReleaseRecord[]) => void;
-}> = ({ health, records, servers, composeIndex, onReloadServers, onReceiptApplied }) => {
+}> = ({ health, records, servers, composeIndex, staleFlags, onReloadServers, onReceiptApplied }) => {
   const [pasted, setPasted] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<UploadOutcome[]>([]);
@@ -818,8 +820,8 @@ export const HealthView: React.FC<{
         />
       )}
 
-      <ChecklistPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} />
-      <RolloutPlanPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} />
+      <ChecklistPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} staleFlags={staleFlags} />
+      <RolloutPlanPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} staleFlags={staleFlags} />
       <ToolkitPanel reports={health.reports} servers={servers} onReloadServers={onReloadServers} />
     </div>
   );

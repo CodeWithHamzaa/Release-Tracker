@@ -1,7 +1,20 @@
 # Plan: Config Vault as the single source of truth for services, ports and image versions
 
-Status: **design only. Nothing in this plan has been built, compiled or run.**
+Status: **implemented** on branch `ccr-4534a492-b8u2g6` (see "Implementation notes" below). The sections after it are the approved design, kept as written.
 Audience: another AI or engineer asked to read, analyse and challenge this plan. Section 12 lists the questions I most want answered.
+
+## Implementation notes (differences from the design)
+
+- **Only build records move image versions.** A record with `isBuildUpdate: false` (a config- or env-only change) no longer sets the current version; its version field says nothing about the image. Found while checking the UI.
+- **`SyncPlan` is a flat object** (`ok`, `error`, `services`, `warnings`) instead of a discriminated union, because the repo's `tsconfig` does not narrow on `!plan.ok`.
+- **Catalog-name matching:** a compose key that is itself a catalog name always keeps it; other services cannot borrow it through `container_name` or image.
+- **Deleting a vault compose or `.env` file re-runs the sync** for that environment + role, so another compose file of that role takes over.
+- **Missing 006 schema** is reported as "Run prisma/manual/006_vault_sync.sql" (HTTP 503 on `GET /api/catalog`, a failed sync on save) instead of a generic 500.
+- **Amber chips** on the Infrastructure page only mark a newer compose upload overriding a logged build. A record ahead of the vault file is the normal case and shows neutral.
+- **Health "Version check"** treats PENDING like SUCCESS, and its vault column is now "Expected (vault / audit log)".
+- `/api/configs/sync` also accepts `{ environment, role }` to resync one pair.
+
+Verified: 148/148 unit tests, `npm run lint` (tsc + API ESM check), `npm run build`. `006_vault_sync.sql` was applied twice to Postgres 16 on top of the previous schema, and `prisma migrate diff` against the new `schema.prisma` came back empty. An end-to-end API run covered sync, idempotent re-upload, a removed service, per-environment images, legacy-row replacement, 409 on synced services, invalid YAML, resync and cascade on delete. A headless-browser check covered the Infrastructure, Configs and Health pages. Not verified: Supabase itself, Vercel timeouts, and real bank compose files. `tsc` does not check React component props in this repo (`@types/react` is not installed), so prop wiring was checked by hand and in the browser.
 
 ---
 

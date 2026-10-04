@@ -3,6 +3,7 @@
 // state, toolkit version, data age, and running-vs-recorded-vs-vault
 // version checks.
 
+import { isDeployed } from './currentVersions.js';
 import type { ParsedDoctor, ParsedSnapshot, ParsedStatus, ToolkitContainer, ToolkitKind } from './toolkitParse.js';
 import { imageRepo, imageTag, versionOf, ComposeServiceSummary } from './configDrift.js';
 import type { ParsedReceipt } from './receiptParse.js';
@@ -126,8 +127,8 @@ export interface VersionCheck {
   service: string; // tracker service name when matched, else the container name
   image: string;
   running: string | null;
-  recorded: string | null; // latest SUCCESS release record
-  vault: string | null; // latest stored compose file
+  recorded: string | null; // latest deployed (SUCCESS or PENDING) release record
+  vault: string | null; // expected version: the vault compose tag, or a newer record (lib/currentVersions.ts)
   recordMismatch: boolean;
   vaultMismatch: boolean;
 }
@@ -137,9 +138,11 @@ export function versionChecks(
   records: ReleaseRecord[], // already filtered to this environment + role
   composeSummaries: ComposeServiceSummary[] | null
 ): VersionCheck[] {
+  // Latest deployed record: SUCCESS, or PENDING (deployed, awaiting the
+  // bank's test). FAILED never counts.
   const latestSuccess = new Map<string, ReleaseRecord>();
   for (const r of records) {
-    if (String(r.status).toUpperCase() !== 'SUCCESS') continue;
+    if (!isDeployed(r.status)) continue;
     const cur = latestSuccess.get(r.service);
     if (!cur || new Date(r.createdAt) > new Date(cur.createdAt)) latestSuccess.set(r.service, r);
   }

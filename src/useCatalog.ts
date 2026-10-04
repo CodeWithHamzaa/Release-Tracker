@@ -13,12 +13,38 @@ export interface CatalogPort {
   hostIp: string | null;
 }
 
+// What one environment runs for a service, synced from the vault compose file.
+export interface CatalogDeployment {
+  environment: string;
+  role: string;
+  composeKey: string;
+  containerName: string | null;
+  image: string | null;
+  tag: string | null;
+  syncedAt: string;
+  sourceVersion: { version: number; createdAt: string } | null;
+}
+
 export interface CatalogService {
   id: string;
   server: string;
   name: string;
   image: string | null;
   ports: CatalogPort[];
+  deployments?: CatalogDeployment[]; // absent in the config/services.json fallback
+}
+
+// Sync state of each environment + role's primary compose file.
+export interface ComposeSyncState {
+  fileId: string;
+  environment: string;
+  role: string;
+  path: string;
+  latestVersion: number | null;
+  latestAt: string | null;
+  syncedVersion: number | null;
+  syncedAt: string | null;
+  syncError: string | null;
 }
 
 const FALLBACK: Record<string, string[]> = servicesConfig;
@@ -29,6 +55,7 @@ const FALLBACK: Record<string, string[]> = servicesConfig;
 // fallback is visible, never silent.
 export function useCatalog(enabled: boolean) {
   const [services, setServices] = useState<CatalogService[]>([]);
+  const [syncState, setSyncState] = useState<ComposeSyncState[]>([]);
   const [source, setSource] = useState<'database' | 'fallback'>('fallback');
   const [warning, setWarning] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -44,10 +71,12 @@ export function useCatalog(enabled: boolean) {
       const data = await res.json();
       if (data.dataSource === 'database') {
         setServices(data.services);
+        setSyncState(data.syncState ?? []);
         setSource('database');
         setWarning(null);
       } else {
         setServices([]);
+        setSyncState([]);
         setSource('fallback');
         setWarning('No database: the catalog is read-only from config/services.json.');
       }
@@ -70,5 +99,17 @@ export function useCatalog(enabled: boolean) {
     return map;
   }, [services, source]);
 
-  return { services, serverMap, source, warning, isLoading, reload };
+  // Re-apply the vault to the catalog (backfill, or retry a failed sync).
+  // Returns one line per environment + role that did not sync.
+  const resync = useCallback(async (): Promise<string[]> => {
+    const res = await apiFetch('/api/configs/sync', { method: 'POST', body: JSON.stringify({}) });
+    if (!res.ok) throw new Error(await apiErrorMessage(res, 'Could not resync from the vault'));
+    const data = await res.json();
+    await reload();
+    return (data.results ?? [])
+      .filter((r: any) => r.status === 'failed')
+      .map((r: any) => `${r.environment} / ${r.role}: ${r.error}`);
+  }, [reload]);
+
+  return { services, syncState, serverMap, source, warning, isLoading, reload, resync };
 }

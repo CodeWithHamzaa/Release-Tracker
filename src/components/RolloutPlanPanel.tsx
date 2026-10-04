@@ -10,6 +10,7 @@ import type { ReleaseRecord } from '@/lib/types';
 import { copyText, downloadText } from '../download';
 import type { ServerNode } from '../useServers';
 import type { ComposeIndex } from '../useConfigs';
+import type { StaleFlags } from '@/lib/currentVersions';
 import { RiskBadge } from './RiskPanel';
 
 const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
@@ -46,13 +47,14 @@ export const RolloutPlanPanel: React.FC<{
   servers: ServerNode[];
   records: ReleaseRecord[];
   composeIndex: ComposeIndex;
-}> = ({ reports, servers, records, composeIndex }) => {
+  staleFlags?: StaleFlags[];
+}> = ({ reports, servers, records, composeIndex, staleFlags }) => {
   const [source, setSource] = useState('SIT');
   const [target, setTarget] = useState('UAT');
 
   const { rows, overall, plan } = useMemo(() => {
     const inputs = EXECUTION_ORDER.map((role) =>
-      buildRoleRiskInput({ role, sourceEnv: source, targetEnv: target, reports, servers, compose: composeIndex, records })
+      buildRoleRiskInput({ role, sourceEnv: source, targetEnv: target, reports, servers, compose: composeIndex, records, stale: staleFlags })
     );
     const risk = evaluateRollout(inputs);
     const roles: RolloutRoleInput[] = inputs.map((input) => {
@@ -80,7 +82,7 @@ export const RolloutPlanPanel: React.FC<{
       };
     });
     return { rows: roles, overall: risk.overall, plan: buildRolloutPlan({ sourceEnv: source, targetEnv: target, roles, overall: risk.overall }) };
-  }, [reports, servers, records, composeIndex, source, target]);
+  }, [reports, servers, records, composeIndex, staleFlags, source, target]);
 
   const markdown = useMemo(() => rolloutPlanMarkdown(plan), [plan]);
 

@@ -12,6 +12,7 @@ import { apiFetch, apiErrorMessage } from './api';
 import { useCatalog, CatalogService } from './useCatalog';
 import { useServers } from './useServers';
 import { useConfigs, useComposeIndex } from './useConfigs';
+import { useEffectiveComposeIndex, useStaleFlags } from './useCurrentVersions';
 import { ConfigsView } from './components/ConfigsView';
 import { HealthView } from './components/HealthView';
 import { useHealth } from './useHealth';
@@ -329,6 +330,17 @@ export default function App() {
     await supabase?.auth.signOut();
   }, []);
 
+  // The audit log wins over the compose upload for image versions: Health
+  // checks and the risk analyzer read the vault compose with current versions
+  // applied, and every page sees the same stale-vault flags.
+  const currentCompose = useEffectiveComposeIndex(composeIndex, records);
+  const staleFlags = useStaleFlags(configs.files, records);
+
+  // A vault save or delete re-syncs the catalog on the server; reload it.
+  const handleCatalogChanged = useCallback(() => {
+    catalog.reload();
+  }, [catalog.reload]);
+
   // The Infrastructure page lists config/services.json when there is no database.
   const catalogServices = useMemo<CatalogService[]>(() => {
     if (catalog.source === 'database') return catalog.services;
@@ -414,13 +426,18 @@ export default function App() {
             servers={registry.servers}
             serversWarning={registry.warning}
             onReloadServers={registry.reload}
+            syncState={catalog.syncState}
+            staleFlags={staleFlags}
+            records={records}
+            onResync={catalog.resync}
           />
         ) : currentPath === '/health' ? (
           <HealthView
             health={health}
             records={records}
             servers={registry.servers}
-            composeIndex={composeIndex}
+            composeIndex={currentCompose}
+            staleFlags={staleFlags}
             onReloadServers={registry.reload}
             onReceiptApplied={handleReceiptApplied}
           />
@@ -430,6 +447,8 @@ export default function App() {
             servers={registry.servers}
             catalogServices={catalogServices}
             onRecordsLogged={handleRecordsLogged}
+            onCatalogChanged={handleCatalogChanged}
+            staleFlags={staleFlags}
           />
         ) : (
           <DashboardView

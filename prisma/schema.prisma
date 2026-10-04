@@ -9,61 +9,91 @@ datasource db {
 }
 
 model ReleaseRecord {
-  id             String   @id @default(uuid())
-  environment    String   // SIT, UAT, Prod
-  server         String   // e.g., Bot-Builder, Chat-Service
-  service        String   // e.g., bot-builder-api, websocket-server
-  version        String   // e.g., v1.0.2
-  developerName  String   // Developer who wrote or provided the build
-  status         String   @default("PENDING") // SUCCESS, FAILED, PENDING
-  
-  isBuildUpdate  Boolean  @default(false)
-  isEnvUpdate    Boolean  @default(false)
+  id            String @id @default(uuid())
+  environment   String // SIT, UAT, Prod
+  server        String // e.g., Bot-Builder, Chat-Service
+  service       String // e.g., bot-builder-api, websocket-server
+  version       String // e.g., v1.0.2
+  developerName String // Developer who wrote or provided the build
+  status        String @default("PENDING") // SUCCESS, FAILED, PENDING
+
+  isBuildUpdate  Boolean @default(false)
+  isEnvUpdate    Boolean @default(false)
   envDetails     String?
-  isConfigUpdate Boolean  @default(false)
+  isConfigUpdate Boolean @default(false)
   configDetails  String?
-  hasCommands    Boolean  @default(false)
+  hasCommands    Boolean @default(false)
   commandDetails String?
-  
-  note           String?
-  source         String   // Teams DM, Teams Group, OneDrive, SharePoint
-  added_by       String   // Hameed or Hanzala
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+
+  note      String?
+  source    String // Teams DM, Teams Group, OneDrive, SharePoint
+  added_by  String // Hameed or Hanzala
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Service catalog: the servers (groups) and services offered in the Add Record
-// form, plus the host ports each service publishes per environment and host
-// (filled by the docker-compose import on the Catalog page).
+// form. Services, per-environment images and published host ports are synced
+// from the latest docker-compose.yml in the Config Vault (lib/composeSync.ts);
+// services in no compose file can still be added by hand.
 model Service {
-  id        String        @id @default(uuid())
-  server    String        // group, e.g. Bot-Builder, Database
-  name      String        // e.g. ldap-connector
-  image     String?       // image from the last imported compose file
-  ports     ServicePort[]
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id          String              @id @default(uuid())
+  server      String // group = vault role for synced services, e.g. Bot-Builder
+  name        String // e.g. ldap-connector
+  image       String? // deprecated: last synced image, any environment. Read deployments.
+  ports       ServicePort[]
+  deployments ServiceDeployment[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   @@unique([server, name])
 }
 
 model ServicePort {
-  id            String   @id @default(uuid())
-  serviceId     String
-  service       Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  environment   String   // SIT, UAT, Prod
-  host          String   // host label chosen at import, e.g. sit-app-01
-  hostPort      Int
-  containerPort Int
-  protocol      String   @default("tcp")
-  hostIp        String?
-  createdAt     DateTime @default(now())
+  id              String             @id @default(uuid())
+  serviceId       String
+  service         Service            @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  environment     String // SIT, UAT, Prod
+  host            String // role name for vault-synced rows; free label for legacy imports
+  hostPort        Int
+  containerPort   Int
+  protocol        String             @default("tcp")
+  hostIp          String?
+  sourceFileId    String? // vault compose file that produced it; null = legacy manual import
+  sourceFile      ConfigFile?        @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  sourceVersionId String?
+  sourceVersion   ConfigFileVersion? @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now())
 
   // A service binds each host port once. Two services on the same host port
-  // are allowed (reverse proxies) and reported as warnings by the import.
+  // are allowed (reverse proxies) and reported as warnings by the sync.
   @@unique([serviceId, environment, host, hostPort, protocol])
   @@index([environment, host])
   @@index([serviceId])
+  @@index([sourceFileId])
+}
+
+// What one environment runs for a service, from the latest vault compose file.
+// The current version shown in the app is this tag unless a newer deployed
+// release record overrides it (lib/currentVersions.ts).
+model ServiceDeployment {
+  id              String             @id @default(uuid())
+  serviceId       String
+  service         Service            @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  environment     String
+  role            String
+  composeKey      String // key under services: (may differ from the catalog name)
+  containerName   String?
+  image           String?
+  tag             String?
+  sourceFileId    String
+  sourceFile      ConfigFile         @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  sourceVersionId String?
+  sourceVersion   ConfigFileVersion? @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  syncedAt        DateTime           @default(now())
+
+  @@unique([serviceId, environment])
+  @@index([environment, role])
 }
 
 // Server registry: one row per environment + role (the four ALARA roles, same
@@ -72,15 +102,15 @@ model ServicePort {
 // Unknown values stay NULL and show as "unverified" in the UI.
 model ServerNode {
   id             String   @id @default(uuid())
-  environment    String   // SIT, UAT, Prod
-  role           String   // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  environment    String // SIT, UAT, Prod
+  role           String // Bot-Builder, ChatBot / NLU, Database, Chat-Service
   ip             String?
   domain         String?
-  composePath    String?  // folder holding docker-compose.yml
-  runAs          String?  // e.g. root on SIT, chatbotuat on UAT
-  access         String?  // how you reach it, e.g. jump 10.200.200.20
+  composePath    String? // folder holding docker-compose.yml
+  runAs          String? // e.g. root on SIT, chatbotuat on UAT
+  access         String? // how you reach it, e.g. jump 10.200.200.20
   envFiles       String[] // env files this role reads
-  toolkitVersion String?  // alara_server.sh version installed
+  toolkitVersion String? // alara_server.sh version installed
   notes          String?
   updatedAt      DateTime @updatedAt
 
@@ -92,28 +122,36 @@ model ServerNode {
 // Contents are stored as uploaded (including any plaintext secrets), so the
 // tables have RLS on with no policies and are reachable only via the API.
 model ConfigFile {
-  id          String              @id @default(uuid())
-  environment String              // SIT, UAT, Prod
-  role        String              // Bot-Builder, ChatBot / NLU, Database, Chat-Service
-  path        String              // docker-compose.yml, .env, .env_fbl, .poly_env, ...
-  versions    ConfigFileVersion[]
-  createdAt   DateTime            @default(now())
+  id            String              @id @default(uuid())
+  environment   String // SIT, UAT, Prod
+  role          String // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  path          String // docker-compose.yml, .env, .env_fbl, .poly_env, ...
+  versions      ConfigFileVersion[]
+  createdAt     DateTime            @default(now())
+  // Catalog sync of a compose file (lib/composeSync.ts).
+  syncedVersion Int? // last version applied to the catalog
+  syncedAt      DateTime?
+  syncError     String? // why the latest version was not applied
+  deployments   ServiceDeployment[]
+  ports         ServicePort[]
 
   @@unique([environment, role, path])
 }
 
 model ConfigFileVersion {
-  id        String     @id @default(uuid())
-  fileId    String
-  file      ConfigFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  version   Int
-  content   String
-  sha256    String
-  sizeBytes Int
-  source    String     // upload | edit
-  note      String?
-  createdBy String     // email of the signed-in user
-  createdAt DateTime   @default(now())
+  id          String              @id @default(uuid())
+  fileId      String
+  file        ConfigFile          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  version     Int
+  content     String
+  sha256      String
+  sizeBytes   Int
+  source      String // upload | edit
+  note        String?
+  createdBy   String // email of the signed-in user
+  createdAt   DateTime            @default(now())
+  deployments ServiceDeployment[]
+  ports       ServicePort[]
 
   @@unique([fileId, version])
 }
@@ -124,9 +162,9 @@ model ConfigFileVersion {
 // kind. Snapshots hold no plaintext secrets (the toolkit hashes them).
 model HealthReport {
   id          String   @id @default(uuid())
-  environment String   // SIT, UAT, Prod
-  role        String   // Bot-Builder, ChatBot / NLU, Database, Chat-Service
-  kind        String   // snapshot | status | doctor
+  environment String // SIT, UAT, Prod
+  role        String // Bot-Builder, ChatBot / NLU, Database, Chat-Service
+  kind        String // snapshot | status | doctor
   reportedAt  DateTime // "# generated:" for snapshots, else upload time
   host        String?
   parsed      Json

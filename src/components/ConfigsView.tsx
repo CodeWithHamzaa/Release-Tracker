@@ -31,7 +31,9 @@ import { ReleaseRecord } from '@/lib/types';
 import { DEFAULT_DEVELOPER } from '@/lib/developers';
 import { apiFetch, apiErrorMessage } from '../api';
 import { downloadText } from '../download';
+import { syncSummary } from '../useConfigs';
 import type { ConfigFileMeta, ConfigVersionMeta, ConfigsApi } from '../useConfigs';
+import type { StaleFlags } from '@/lib/currentVersions';
 import type { ServerNode } from '../useServers';
 import type { CatalogService } from '../useCatalog';
 
@@ -222,7 +224,8 @@ const FilePanel: React.FC<{
   configs: ConfigsApi;
   onClose: () => void;
   onImageChanges: (set: ImageChangeSet) => void;
-}> = ({ file, configs, onClose, onImageChanges }) => {
+  onCatalogChanged: () => void;
+}> = ({ file, configs, onClose, onImageChanges, onCatalogChanged }) => {
   const [versions, setVersions] = useState<ConfigVersionMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(file.latest?.id ?? null);
   const [content, setContent] = useState<string | null>(null);
@@ -299,7 +302,12 @@ const FilePanel: React.FC<{
         setMessage('No changes: identical to the latest version, nothing saved.');
         return;
       }
-      setMessage(`Saved as v${result.version.version}. Copy it to the server yourself (Download → WinSCP); the tracker never pushes files.`);
+      const synced = syncSummary(result.sync);
+      setMessage(
+        `Saved as v${result.version.version}. Copy it to the server yourself (Download → WinSCP); the tracker never pushes files.` +
+          (synced ? ` ${synced[0].toUpperCase()}${synced.slice(1)}.` : '')
+      );
+      if (result.sync) onCatalogChanged();
       setNote('');
       setMode('view');
       if (isComposeName(file.path) && result.previousContent !== null) {
@@ -332,8 +340,9 @@ const FilePanel: React.FC<{
   const deleteFile = async () => {
     if (!window.confirm(`Delete ${file.path} for ${envLabel(file.environment)} / ${file.role} and all ${file.versionCount} version(s)? This cannot be undone.`)) return;
     try {
-      await configs.remove(file.id);
+      const sync = await configs.remove(file.id);
       await configs.reload();
+      if (sync) onCatalogChanged();
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -690,6 +699,14 @@ const ComparePanel: React.FC<{ configs: ConfigsApi; servers: ServerNode[] }> = (
   );
 };
 
+interface UploadResult {
+  name: string;
+  ok: boolean;
+  text: string;
+  warn?: boolean; // saved, but the catalog sync failed or warned
+  detail?: string[];
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export const ConfigsView: React.FC<{
@@ -697,11 +714,13 @@ export const ConfigsView: React.FC<{
   servers: ServerNode[];
   catalogServices: CatalogService[];
   onRecordsLogged: (records: ReleaseRecord[]) => void;
-}> = ({ configs, servers, catalogServices, onRecordsLogged }) => {
+  onCatalogChanged: () => void; // a vault save/delete re-synced the catalog
+  staleFlags: StaleFlags[];
+}> = ({ configs, servers, catalogServices, onRecordsLogged, onCatalogChanged, staleFlags }) => {
   const [environment, setEnvironment] = useState<string>('SIT');
   const [role, setRole] = useState<string>(CONFIG_ROLES[0]);
   const [uploading, setUploading] = useState(false);
-  const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
+  const [results, setResults] = useState<UploadResult[]>([]);
   const [offers, setOffers] = useState<ImageChangeSet[]>([]);
   const [openFileId, setOpenFileId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -733,16 +752,21 @@ export const ConfigsView: React.FC<{
     if (!picked.length) return;
     setUploading(true);
     setResults([]);
-    const out: { name: string; ok: boolean; text: string }[] = [];
+    const out: UploadResult[] = [];
+    let catalogTouched = false;
     for (const f of picked) {
       try {
         if (f.size > 1_000_000) throw new Error('larger than 1 MB');
         const content = await f.text();
         const r = await configs.save({ environment, role, path: f.name, content, source: 'upload' });
+        const synced = syncSummary(r.sync);
+        if (r.sync) catalogTouched = true;
         out.push({
           name: f.name,
           ok: true,
-          text: r.unchanged ? `unchanged (still v${r.version.version})` : `saved as v${r.version.version}`,
+          text: (r.unchanged ? `unchanged (still v${r.version.version})` : `saved as v${r.version.version}`) + (synced ? ` · ${synced}` : ''),
+          warn: r.sync?.status === 'failed' || (r.sync?.status === 'synced' && r.sync.warnings.length > 0),
+          detail: r.sync?.status === 'synced' ? r.sync.warnings : [],
         });
         // A first upload is a baseline, not a change: only offer to log
         // records when there was a previous version to compare against.
@@ -773,6 +797,7 @@ export const ConfigsView: React.FC<{
     setResults(out);
     setUploading(false);
     await configs.reload();
+    if (catalogTouched) onCatalogChanged();
   };
 
   return (
@@ -853,8 +878,13 @@ export const ConfigsView: React.FC<{
         {results.length > 0 && (
           <ul className="space-y-1 text-xs">
             {results.map((r) => (
-              <li key={r.name} className={r.ok ? 'text-emerald-300' : 'text-rose-300'}>
+              <li key={r.name} className={!r.ok ? 'text-rose-300' : r.warn ? 'text-amber-300' : 'text-emerald-300'}>
                 <span className="font-mono">{r.name}</span>: {r.text}
+                {r.detail && r.detail.length > 0 && (
+                  <ul className="ml-4 list-disc text-amber-300/90">
+                    {r.detail.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>
@@ -883,6 +913,7 @@ export const ConfigsView: React.FC<{
                   {CONFIG_ENVS.map((env) => {
                     const here = fileAt(env, r);
                     const missing = expectedFor(env, r).filter((p) => !here.some((f) => f.path === p));
+                    const flag = staleFlags.find((x) => x.environment === env && x.role === r);
                     return (
                       <td key={env} className="px-3 py-2 align-top">
                         <div className="flex flex-wrap gap-1">
@@ -910,6 +941,15 @@ export const ConfigsView: React.FC<{
                             </span>
                           ))}
                         </div>
+                        {flag?.configStale && (
+                          <p className="mt-1 text-[11px] text-amber-300">Config change logged {flag.configStale.slice(0, 10)}: re-upload docker-compose.yml.</p>
+                        )}
+                        {flag?.envStale && (
+                          <p className="mt-1 text-[11px] text-amber-300">Env change logged {flag.envStale.slice(0, 10)}: re-upload the env files.</p>
+                        )}
+                        {flag && flag.buildsSince > 0 && (
+                          <p className="mt-1 text-[11px] text-zinc-400">{flag.buildsSince} build(s) logged since the compose upload.</p>
+                        )}
                       </td>
                     );
                   })}
@@ -927,6 +967,7 @@ export const ConfigsView: React.FC<{
             configs={configs}
             onClose={() => setOpenFileId(null)}
             onImageChanges={(set) => setOffers((prev) => [...prev, set])}
+            onCatalogChanged={onCatalogChanged}
           />
         )}
         <div className="mt-4 space-y-3">{renderOffers('edit')}</div>
