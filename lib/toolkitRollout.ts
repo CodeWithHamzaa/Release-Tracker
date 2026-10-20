@@ -5,7 +5,8 @@
 // deployer, so restarts are a separate phase. The tracker only writes the
 // steps; nothing is executed from here.
 
-import { indexEnv, shellQuote } from './runbook.js';
+import { shellQuote } from './shell.js';
+import { envLabel as indexEnv } from './environments.js';
 
 export interface RolloutServer {
   environment: string;

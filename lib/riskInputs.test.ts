@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseToolkitOutput } from './toolkitParse.js';
 import type { HealthReportMeta } from './healthModel.js';
 import { summarizeCompose } from './configDrift.js';
-import { buildRoleRiskInput, canProceed } from './riskInputs.js';
+import { buildRoleRiskInput } from './riskInputs.js';
 import { evaluateRoleRisk } from './riskEngine.js';
 
 const FX = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'toolkit');
@@ -57,15 +57,6 @@ test('the registry supplies the toolkit version when there is no doctor report; 
 test('the Database role never gets a compare', () => {
   const i = buildRoleRiskInput(args({ role: 'Database', targetEnv: 'UAT' }));
   assert.equal(i.compare, null);
-});
-
-test('canProceed: blockers stop everything, high findings need a tick, medium never does', () => {
-  const f = (id: string, severity: string) => ({ id, severity });
-  assert.equal(canProceed([], new Set()).ok, true);
-  assert.equal(canProceed([f('a', 'medium')], new Set()).ok, true);
-  assert.match(canProceed([f('a', 'blocker'), f('b', 'high')], new Set(['b'])).reason!, /1 blocker/);
-  assert.match(canProceed([f('a', 'high'), f('b', 'high')], new Set(['a'])).reason!, /1 high-risk/);
-  assert.equal(canProceed([f('a', 'high')], new Set(['a'])).ok, true);
 });
 
 test('stale-vault flags for the source and target reach the risk input', () => {

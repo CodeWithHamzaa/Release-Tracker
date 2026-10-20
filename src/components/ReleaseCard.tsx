@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Pencil,
-  FileTerminal,
+  Route,
   FileCode,
   Sliders,
   Terminal,
@@ -465,10 +465,10 @@ export const ReleaseCard: React.FC<ReleaseCardProps> = ({
                     id={`btn-runbook-${record.id}`}
                     onClick={() => onRunbook(record)}
                     className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-white/30 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-zinc-100 transition-colors hover:border-emerald-400/50 hover:bg-emerald-500/15 hover:text-emerald-200"
-                    title="Patch runbook for alara_server.sh on this server"
+                    title="Plan promoting this build in the Patch Planner"
                   >
-                    <FileTerminal className="h-3.5 w-3.5" />
-                    Runbook
+                    <Route className="h-3.5 w-3.5" />
+                    Plan patch
                   </button>
                 )}
                 {onEdit && (

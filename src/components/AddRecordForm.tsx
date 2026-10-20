@@ -25,6 +25,7 @@ import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
 import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
 import { NOTE_LABEL, validateNote } from '@/lib/releaseNote';
 import { apiFetch, apiErrorMessage } from '../api';
+import { ENVIRONMENTS } from '@/lib/environments';
 
 export interface ServiceFormBlock {
   id: string;
@@ -437,7 +438,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                   Target Environment *
                 </label>
                 <div className="grid grid-cols-3 gap-1.5 p-1 bg-surface-overlay rounded-xl border border-white/15">
-                  {(['SIT', 'UAT', 'Prod'] as const).map((env) => (
+                  {ENVIRONMENTS.map((env) => (
                     <button
                       key={env}
                       type="button"

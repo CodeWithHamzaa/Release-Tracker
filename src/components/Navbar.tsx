@@ -1,5 +1,18 @@
 import React from 'react';
-import { Layers, Plus, Activity, Network, LogOut, FolderLock, HeartPulse } from 'lucide-react';
+import { Layers, Plus, ScrollText, Network, LogOut, FolderLock, HeartPulse, GitCompareArrows, Route, GitBranch } from 'lucide-react';
+
+// Main sections, in the order an operator works: what was released, what
+// differs, what to patch, which features it carries, then config, health and
+// the servers themselves.
+export const NAV_ITEMS = [
+  { path: '/', id: 'btn-nav-dashboard', label: 'Releases', icon: ScrollText },
+  { path: '/differences', id: 'btn-nav-differences', label: 'Differences', icon: GitCompareArrows },
+  { path: '/plan', id: 'btn-nav-plan', label: 'Patch Planner', icon: Route },
+  { path: '/changes', id: 'btn-nav-changes', label: 'Changes', icon: GitBranch },
+  { path: '/configs', id: 'btn-nav-configs', label: 'Configuration', icon: FolderLock },
+  { path: '/health', id: 'btn-nav-health', label: 'Health', icon: HeartPulse },
+  { path: '/infrastructure', id: 'btn-nav-infrastructure', label: 'Infrastructure', icon: Network },
+] as const;
 
 interface NavbarProps {
   currentPath: string;
@@ -26,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-30 border-b border-white/10 bg-surface-base/85 backdrop-blur-md">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
+        <div className="flex h-16 items-center justify-between gap-2">
           {/* Brand */}
           <button
             type="button"
@@ -36,15 +49,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-emerald-400 transition-colors group-hover:border-white/30">
               <Layers className="h-4 w-4" />
             </span>
-            <span className="hidden text-sm font-semibold tracking-tight text-white lg:inline">
+            <span className="hidden text-sm font-semibold tracking-tight text-white 2xl:inline">
               Release Tracker
             </span>
           </button>
 
           {/* Realtime indicator + actions */}
-          <div className="flex items-center gap-1.5 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <span
-              className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 sm:inline-flex"
+              className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 md:inline-flex"
               title={
                 isRealtimeConnected
                   ? 'Realtime connected — updates stream in live'
@@ -67,51 +80,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </span>
 
-            <nav className="flex items-center gap-1" aria-label="Main">
-              <button
-                id="btn-nav-dashboard"
-                aria-label="Dashboard"
-                title="Dashboard"
-                onClick={() => onNavigate('/')}
-                aria-current={currentPath === '/' ? 'page' : undefined}
-                className={tabClass(currentPath === '/')}
-              >
-                <Activity className="h-4 w-4 text-emerald-400" />
-                <span className="hidden lg:inline">Dashboard</span>
-              </button>
-              <button
-                id="btn-nav-infrastructure"
-                aria-label="Infrastructure"
-                title="Infrastructure"
-                onClick={() => onNavigate('/infrastructure')}
-                aria-current={currentPath === '/infrastructure' ? 'page' : undefined}
-                className={tabClass(currentPath === '/infrastructure')}
-              >
-                <Network className="h-4 w-4 text-emerald-400" />
-                <span className="hidden lg:inline">Infrastructure</span>
-              </button>
-              <button
-                id="btn-nav-configs"
-                aria-label="Configs"
-                title="Configs"
-                onClick={() => onNavigate('/configs')}
-                aria-current={currentPath === '/configs' ? 'page' : undefined}
-                className={tabClass(currentPath === '/configs')}
-              >
-                <FolderLock className="h-4 w-4 text-emerald-400" />
-                <span className="hidden lg:inline">Configs</span>
-              </button>
-              <button
-                id="btn-nav-health"
-                aria-label="Health"
-                title="Health"
-                onClick={() => onNavigate('/health')}
-                aria-current={currentPath === '/health' ? 'page' : undefined}
-                className={tabClass(currentPath === '/health')}
-              >
-                <HeartPulse className="h-4 w-4 text-emerald-400" />
-                <span className="hidden lg:inline">Health</span>
-              </button>
+            <nav className="flex items-center gap-0.5 overflow-x-auto" aria-label="Main">
+              {NAV_ITEMS.map(({ path, id, label, icon: Icon }) => (
+                <button
+                  key={path}
+                  id={id}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => onNavigate(path)}
+                  aria-current={currentPath === path ? 'page' : undefined}
+                  className={tabClass(currentPath === path)}
+                >
+                  <Icon className="h-4 w-4 text-emerald-400" />
+                  <span className="hidden xl:inline">{label}</span>
+                </button>
+              ))}
             </nav>
 
             {currentPath !== '/add' && (
@@ -123,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-2 text-sm font-semibold text-white sm:px-3.5 transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
               >
                 <Plus className="h-4 w-4" />
-                <span className="hidden lg:inline">Add Record</span>
+                <span className="hidden xl:inline">Add Record</span>
               </button>
             )}
 
@@ -135,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs text-zinc-300 transition-colors hover:border-white/30 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
               >
                 <LogOut className="h-4 w-4" />
-                <span className="hidden max-w-[160px] truncate xl:inline">{userEmail || 'Sign out'}</span>
+                <span className="hidden max-w-[160px] truncate 2xl:inline">{userEmail || 'Sign out'}</span>
                 <span className="sr-only">Sign out</span>
               </button>
             )}

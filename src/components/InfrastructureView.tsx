@@ -20,6 +20,8 @@ import { ServersPanel } from './ServersPanel';
 import { PortMapPanel } from './PortMapPanel';
 import { CommonSyncPanel } from './CommonSyncPanel';
 import { ToolkitRolloutPanel } from './ToolkitRolloutPanel';
+import { Message, inputClass } from './ui';
+import { ENVIRONMENTS } from '@/lib/environments';
 
 interface InfrastructureViewProps {
   services: CatalogService[];
@@ -36,10 +38,7 @@ interface InfrastructureViewProps {
   onResync: () => Promise<string[]>;
 }
 
-const ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
 
-const inputClass =
-  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
 const labelClass = 'block text-xs font-bold uppercase tracking-wider text-zinc-200 mb-1.5';
 const cardClass = 'rounded-2xl border border-white/15 bg-white/[0.02]';
 const buttonClass =
@@ -50,27 +49,13 @@ const primaryButtonClass =
 const portLabel = (p: { hostPort: number; containerPort: number; protocol: string }) =>
   `${p.hostPort}→${p.containerPort}${p.protocol === 'tcp' ? '' : '/' + p.protocol}`;
 
-function Message({ kind, children }: { kind: 'error' | 'ok' | 'warn'; children: React.ReactNode }) {
-  const styles = {
-    error: 'border-rose-800/70 bg-rose-950/40 text-rose-300',
-    ok: 'border-emerald-800/70 bg-emerald-950/40 text-emerald-300',
-    warn: 'border-amber-800/70 bg-amber-950/30 text-amber-300',
-  }[kind];
-  const Icon = kind === 'ok' ? CheckCircle2 : kind === 'warn' ? AlertTriangle : AlertCircle;
-  return (
-    <div role={kind === 'error' ? 'alert' : 'status'} className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${styles}`}>
-      <Icon className="mt-0.5 h-4 w-4 flex-shrink-0" />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
 
 // ── Vault sync ──────────────────────────────────────────────────────────────
 // Services, images and ports are not typed in here any more: each upload of
 // docker-compose.yml (or its .env) on the Configs page syncs them on the
 // server. This badge shows how far each environment + role has synced.
 
-const ENV_ORDER = ['SIT', 'UAT', 'Prod'];
+const ENV_ORDER: readonly string[] = ENVIRONMENTS;
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
 
 const VaultSyncBadge: React.FC<{

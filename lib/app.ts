@@ -23,6 +23,7 @@ import { matchReceipt, receiptNote } from './receiptMatch.js';
 import { imageTag } from './configDrift.js';
 import { DEFAULT_DEVELOPER } from './developers.js';
 import { planningRouter } from './planningApi.js';
+import { ENVIRONMENTS } from './environments.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -381,7 +382,7 @@ router.delete('/records/:id', requireRole('admin'), async (req: Request, res: Re
 // be added by hand. Local dev without a database has no catalog: GET answers dataSource
 // 'memory' with no services and the UI falls back to config/services.json.
 
-const CATALOG_ENVIRONMENTS = ['SIT', 'UAT', 'Prod'];
+const CATALOG_ENVIRONMENTS: readonly string[] = ENVIRONMENTS;
 
 function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: string })?.code === 'P2002';

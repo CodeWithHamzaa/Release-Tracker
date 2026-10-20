@@ -36,17 +36,12 @@ import type { ConfigFileMeta, ConfigVersionMeta, ConfigsApi } from '../useConfig
 import type { StaleFlags } from '@/lib/currentVersions';
 import type { ServerNode } from '../useServers';
 import type { CatalogService } from '../useCatalog';
+import { btn, card, inputClass, primaryBtn } from './ui';
+import { ENVIRONMENTS, ROLES } from '@/lib/environments';
 
-export const CONFIG_ENVS = ['SIT', 'UAT', 'Prod'] as const;
-export const CONFIG_ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
+export const CONFIG_ENVS = ENVIRONMENTS;
+export const CONFIG_ROLES = ROLES;
 
-const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
-const inputClass =
-  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
-const btn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
-const primaryBtn =
-  'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50';
 const envLabel = (e: string) => e.toUpperCase();
 const isComposeName = (p: string) => /compose.*\.ya?ml$/i.test(p);
 

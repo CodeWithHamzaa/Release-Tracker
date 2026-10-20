@@ -3,8 +3,8 @@ import { CheckCircle2, FileCode2, Loader2, Upload } from 'lucide-react';
 import { parseAlaraCommon, registryChanges, ParsedCommon, RegistryChange } from '@/lib/alaraCommonParse';
 import { apiFetch, apiErrorMessage } from '../api';
 import type { ServerNode } from '../useServers';
+import { card } from './ui';
 
-const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
 const btn =
   'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-50';
 const primary =

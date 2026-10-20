@@ -15,8 +15,6 @@ import { matchesSearch } from '@/lib/recordSearch';
 import { ReleaseCard } from './ReleaseCard';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
-import { RunbookModal } from './RunbookModal';
-import type { ServerNode } from '../useServers';
 import { ageText, sameVersion, RunningIndex } from '@/lib/healthModel';
 
 interface DashboardViewProps {
@@ -25,7 +23,7 @@ interface DashboardViewProps {
   onRecordUpdated?: (record: ReleaseRecord) => void;
   onRecordDeleted?: (id: string) => void;
   // Server registry lookup for the patch runbook.
-  findServer?: (environment: string, role: string) => ServerNode | null;
+  onPlanRecord?: (record: ReleaseRecord) => void; // open the Patch Planner for this build
   // What the servers actually run, from uploaded status/snapshot reports.
   running?: RunningIndex;
 }
@@ -92,10 +90,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isLoading = false,
   onRecordUpdated,
   onRecordDeleted,
-  findServer,
   running,
+  onPlanRecord,
 }) => {
-  const [runbookRecord, setRunbookRecord] = useState<ReleaseRecord | null>(null);
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
   // Filters start unset so the initial load shows every record across all environments.
@@ -527,7 +524,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     setExpandedRowId((prev) => (prev === record.id ? null : record.id))
                   }
                   onEdit={handleEditClick}
-                  onRunbook={setRunbookRecord}
+                  onRunbook={onPlanRecord}
                 />
               ))}
             </div>
@@ -546,14 +543,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onDeleteSuccess={onRecordDeleted}
       />
 
-      {runbookRecord && (
-        <RunbookModal
-          record={runbookRecord}
-          records={records}
-          server={findServer ? findServer(runbookRecord.environment, runbookRecord.server) : null}
-          onClose={() => setRunbookRecord(null)}
-        />
-      )}
     </div>
   );
 };

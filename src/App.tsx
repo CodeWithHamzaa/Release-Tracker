@@ -17,6 +17,10 @@ import { ConfigsView } from './components/ConfigsView';
 import { HealthView } from './components/HealthView';
 import { useHealth } from './useHealth';
 import { runningIndex } from '@/lib/healthModel';
+import { DifferencesView } from './components/DifferencesView';
+import { PatchPlannerView, PlannerPreset } from './components/PatchPlannerView';
+import { ChangesView } from './components/ChangesView';
+import { canonicalEnvironment, ENVIRONMENTS } from '@/lib/environments';
 
 const RECORDS_CACHE_KEY = 'enterprise_release_records_v3';
 
@@ -173,6 +177,21 @@ const INITIAL_RECORDS: ReleaseRecord[] = [
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>('/');
+  // Source -> target shared by Differences and the Patch Planner, so moving
+  // between them keeps the pair; a preset carries a picked build in.
+  const [planner, setPlanner] = useState<PlannerPreset>({ source: 'SIT', target: 'UAT' });
+  const openPlanner = useCallback((preset: PlannerPreset) => {
+    setPlanner(preset);
+    setCurrentPath('/plan');
+  }, []);
+  // "Plan patch" on a release record: promote that build into the record's
+  // environment from the one before it (a SIT build goes on to UAT).
+  const planRecord = useCallback((r: ReleaseRecord) => {
+    const env = canonicalEnvironment(r.environment) ?? 'SIT';
+    const i = ENVIRONMENTS.indexOf(env);
+    const [source, target] = i === 0 ? [ENVIRONMENTS[0], ENVIRONMENTS[1]] : [ENVIRONMENTS[i - 1], env];
+    openPlanner({ source, target, selection: { [`${r.server}::${r.service}`]: { version: r.version } } });
+  }, [openPlanner]);
 
   // Login. With no Supabase configured (local dev only) auth is off entirely,
   // matching the API, which skips auth in that case too.
@@ -431,6 +450,25 @@ export default function App() {
             records={records}
             onResync={catalog.resync}
           />
+        ) : currentPath === '/differences' ? (
+          <DifferencesView
+            source={planner.source}
+            target={planner.target}
+            onPair={(source, target) => setPlanner({ source, target })}
+            onPlan={(source, target) => openPlanner({ source, target })}
+          />
+        ) : currentPath === '/plan' ? (
+          <PatchPlannerView
+            preset={planner}
+            onPair={(source, target) => setPlanner({ source, target })}
+            reports={health.reports}
+            servers={registry.servers}
+            records={records}
+            composeIndex={currentCompose}
+            staleFlags={staleFlags}
+          />
+        ) : currentPath === '/changes' ? (
+          <ChangesView services={catalogServices} />
         ) : currentPath === '/health' ? (
           <HealthView
             health={health}
@@ -440,6 +478,7 @@ export default function App() {
             staleFlags={staleFlags}
             onReloadServers={registry.reload}
             onReceiptApplied={handleReceiptApplied}
+            onPlan={(source, target) => openPlanner({ source, target })}
           />
         ) : currentPath === '/configs' ? (
           <ConfigsView
@@ -457,7 +496,7 @@ export default function App() {
             onRecordUpdated={handleRecordUpdated}
             onRecordDeleted={handleRecordDeleted}
             running={running}
-            findServer={registry.find}
+            onPlanRecord={planRecord}
           />
         )}
       </main>
