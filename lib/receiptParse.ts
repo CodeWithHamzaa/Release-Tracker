@@ -11,7 +11,7 @@
 // field the script could have set to anything.
 
 import { containerState, trackerEnv, trackerRole, ToolkitContainer } from './toolkitParse.js';
-import { PATCH_ID_PATTERN } from './runbook.js';
+import { PATCH_ID_PATTERN } from './patchPlan.js';
 
 export const RECEIPT_FORMAT_PREFIX = 'alara-receipt/';
 export const RECEIPT_MAX_BYTES = 1_000_000;

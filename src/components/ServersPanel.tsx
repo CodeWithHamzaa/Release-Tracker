@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { AlertTriangle, Loader2, Pencil, Server, X } from 'lucide-react';
 import { apiFetch, apiErrorMessage } from '../api';
 import type { ServerNode } from '../useServers';
+import { ENVIRONMENTS, ROLES } from '@/lib/environments';
 
-const ENVS = ['SIT', 'UAT', 'Prod'];
-const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'];
+const ENVS: readonly string[] = ENVIRONMENTS;
 
 const inputClass =
   'w-full px-2.5 py-1.5 bg-surface-overlay border border-zinc-700/80 rounded-lg text-xs text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';

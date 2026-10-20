@@ -21,6 +21,7 @@ import type { ConfigKeyDiff, EnvironmentComparison, RoleComparison, ServerRef } 
 import type { ResolvedScope, ScopeItem } from './patchScope.js';
 import { envLabel } from './environments.js';
 import { redactText } from './redact.js';
+import { shellArg } from './shell.js';
 
 export const PATCH_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const SAFE_DIR = /^\/[A-Za-z0-9._\/-]{0,250}$/;
@@ -105,11 +106,6 @@ export interface PlanInput {
   // to tell whether an image: line can be edited with one exact command.
   composeTexts?: Record<string, { source: string | null; target: string | null }>;
   generatedAt?: Date;
-}
-
-// Quote for bash: everything inside single quotes is literal.
-export function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 // Tar name the image is expected under (the toolkit's naming): repo:tag ->
@@ -233,7 +229,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     if (!rc.composeFile.target) unknowns.push(`${T} / ${role} has no compose file in the vault: compose file name and service names are taken from ${S} and must be checked on the server.`);
     if (!srv.ip) unknowns.push(`IP of ${T} / ${role} is unknown: the server identity check cannot be confirmed.`);
     if (!srv.runAs) unknowns.push(`Run-as account on ${T} / ${role} is unknown.`);
-    const F = shellQuote(composeFile);
+    const F = shellArg(composeFile);
     const DC = `docker compose -f ${F}`;
     const { defs: tDefs, imageCount } = composeDefs(input.composeTexts?.[role]?.target ?? null);
     const { defs: sDefs } = composeDefs(input.composeTexts?.[role]?.source ?? null);
@@ -304,7 +300,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
       id: `${sid}-access`,
       phase: 'access',
       title: `Open a session on ${label}${srv.access ? ` via ${srv.access}` : ''} and go to the compose folder`,
-      commands: [...(srv.runAs ? ['whoami'] : []), ...(srv.ip ? ['hostname -I'] : []), `cd ${shellQuote(composeDir)}`, `ls -l ${F}`],
+      commands: [...(srv.runAs ? ['whoami'] : []), ...(srv.ip ? ['hostname -I'] : []), `cd ${shellArg(composeDir)}`, `ls -l ${F}`],
       expected: [srv.runAs ? `whoami prints ${srv.runAs}` : 'whoami: account unknown (unverified)', srv.ip ? `hostname -I includes ${srv.ip}` : 'IP unknown (unverified)', `${composeFile} is listed`].join('; ') + '.',
       onFailure: `Stop. You are on the wrong server, account or folder; change nothing.`,
       unknowns: [...dirU, ...(srv.ip ? [] : [`IP of ${T} / ${role}`]), ...(srv.runAs ? [] : [`Run-as account on ${T} / ${role}`])],
@@ -313,10 +309,10 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     // 2. Pre-checks.
     const pre: string[] = [`${DC} config --quiet`, `${DC} ps`];
     for (const s of services.filter((x) => !x.newService)) {
-      pre.push(`docker inspect --format '{{.Config.Image}} {{.Image}}' $(${DC} ps -q ${shellQuote(s.composeKey)})`);
-      if (s.from?.image) pre.push(`docker image inspect --format '{{.Id}}' ${shellQuote(s.from.image)}`);
+      pre.push(`docker inspect --format '{{.Config.Image}} {{.Image}}' $(${DC} ps -q ${shellArg(s.composeKey)})`);
+      if (s.from?.image) pre.push(`docker image inspect --format '{{.Id}}' ${shellArg(s.from.image)}`);
     }
-    for (const s of services) pre.push(`ls -l ${shellQuote(`${tarDir}/${s.tarFile}`)}`);
+    for (const s of services) pre.push(`ls -l ${shellArg(`${tarDir}/${s.tarFile}`)}`);
     pre.push('df -h /var/lib/docker');
     steps.push(step({
       id: `${sid}-precheck`,
@@ -334,7 +330,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     }));
 
     // 3. Backups.
-    const backups = [`cp -p ${F} ${shellQuote(`${composeFile}.before-${patchId}`)}`, ...changedFiles.map((f) => `cp -p ${shellQuote(f)} ${shellQuote(`${f}.before-${patchId}`)}`)];
+    const backups = [`cp -p ${F} ${shellArg(`${composeFile}.before-${patchId}`)}`, ...changedFiles.map((f) => `cp -p ${shellArg(f)} ${shellArg(`${f}.before-${patchId}`)}`)];
     steps.push(step({
       id: `${sid}-backup`,
       phase: 'backup',
@@ -352,7 +348,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
         id: `${sid}-load-${slug(s.composeKey)}`,
         phase: 'load',
         title: `Load ${s.service} ${s.to.tag ?? '<BUILD>'} from the tar already on this server`,
-        commands: [`docker load -i ${shellQuote(tar)}`, ...(s.to.image ? [`docker image inspect --format '{{.Id}} {{.RepoTags}}' ${shellQuote(s.to.image)}`] : [])],
+        commands: [`docker load -i ${shellArg(tar)}`, ...(s.to.image ? [`docker image inspect --format '{{.Id}} {{.RepoTags}}' ${shellArg(s.to.image)}`] : [])],
         expected: `docker load prints "Loaded image: ${s.to.image ?? '<IMAGE>'}"${s.to.imageId ? `; the image ID is ${s.to.imageId}` : '; write the image ID down as evidence (no recorded ID to compare against)'}.`,
         onFailure: `Stop for ${s.service}: do not edit the compose file. A different tag or ID means the wrong tar; a load error means a damaged copy. Re-transfer and retry.`,
         unknowns: [...(s.to.image ? [] : [`Image reference for ${s.service}`]), ...(tarOverride ? [] : dirU)],
@@ -367,8 +363,8 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
         phase: 'config',
         title: add ? `Add ${c.key} to ${c.file}` : `Set ${c.key} in ${c.file} by hand`,
         commands: add
-          ? [`grep -c '^${c.key}=' ${shellQuote(c.file)}`, `printf '%s\\n' ${shellQuote(`${c.key}=${c.value}`)} >> ${shellQuote(c.file)}`, `grep -n '^${c.key}=' ${shellQuote(c.file)}`]
-          : [`grep -c '^${c.key}=' ${shellQuote(c.file)}`],
+          ? [`grep -c '^${c.key}=' ${shellArg(c.file)}`, `printf '%s\\n' ${shellArg(`${c.key}=${c.value}`)} >> ${shellArg(c.file)}`, `grep -n '^${c.key}=' ${shellArg(c.file)}`]
+          : [`grep -c '^${c.key}=' ${shellArg(c.file)}`],
         file: c.path,
         setting: add ? `${c.key}=${c.value}` : `${c.key}=<${T} value>`,
         expected: add ? `The first grep prints 0; the last shows exactly one ${c.key} line.` : `${c.key} is set once, to ${T}'s own value.`,
@@ -402,7 +398,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
       const viaVariable = !!def?.rawImage && def.rawImage.includes('$');
       const exact = !viaVariable && !!old && !!s.to.image && imageCount.get(old) === 1;
       const commands = exact
-        ? [`sed -i 's#^\\(\\s*image:\\s*\\)${escapeSed(old!)}\\s*$#\\1${escapeSedReplacement(s.to.image!)}#' ${F}`, `grep -n ${shellQuote(`image: ${s.to.image}`)} ${F}`, `${DC} config --quiet`]
+        ? [`sed -i 's#^\\(\\s*image:\\s*\\)${escapeSed(old!)}\\s*$#\\1${escapeSedReplacement(s.to.image!)}#' ${F}`, `grep -n ${shellArg(`image: ${s.to.image}`)} ${F}`, `${DC} config --quiet`]
         : [`grep -n 'image:' ${F}`, `${DC} config --quiet`];
       steps.push(step({
         id: `${sid}-compose-${slug(s.composeKey)}`,
@@ -429,7 +425,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
         id: `${sid}-deploy`,
         phase: 'deploy',
         title: `Recreate ${deployKeys.join(', ')}${extra.length ? ` (${extra.join(', ')} only to load the env change)` : ''}`,
-        commands: [`${DC} up -d --no-deps ${deployKeys.map(shellQuote).join(' ')}`],
+        commands: [`${DC} up -d --no-deps ${deployKeys.map(shellArg).join(' ')}`],
         expected: `Each listed container is recreated or started; no other container restarts.`,
         onFailure: 'Go to the rollback steps for this server.',
         unknowns: dirU,
@@ -439,9 +435,9 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     // 8. Verify.
     const verify: string[] = [];
     for (const k of deployKeys) {
-      verify.push(`${DC} ps ${shellQuote(k)}`);
-      verify.push(`docker inspect --format '{{.Config.Image}} {{.Image}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}' $(${DC} ps -q ${shellQuote(k)})`);
-      verify.push(`${DC} logs --since 10m --tail 200 ${shellQuote(k)}`);
+      verify.push(`${DC} ps ${shellArg(k)}`);
+      verify.push(`docker inspect --format '{{.Config.Image}} {{.Image}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}' $(${DC} ps -q ${shellArg(k)})`);
+      verify.push(`${DC} logs --since 10m --tail 200 ${shellArg(k)}`);
     }
     const appChecks = services.flatMap((s) => (tDefs[s.composeKey]?.ports ?? []).slice(0, 1).map((p) => `curl -sS -o /dev/null -w '%{http_code}\\n' http://localhost:${p}/`));
     if (srv.toolkitVersion) verify.push('./alara_server.sh status');
@@ -471,7 +467,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     }));
 
     // Rollback (kept apart, run only on failure).
-    const restores = [`cp -p ${shellQuote(`${composeFile}.before-${patchId}`)} ${F}`, ...changedFiles.map((f) => `cp -p ${shellQuote(`${f}.before-${patchId}`)} ${shellQuote(f)}`)];
+    const restores = [`cp -p ${shellArg(`${composeFile}.before-${patchId}`)} ${F}`, ...changedFiles.map((f) => `cp -p ${shellArg(`${f}.before-${patchId}`)} ${shellArg(f)}`)];
     const newOnes = services.filter((s) => s.newService).map((s) => s.composeKey);
     const back = deployKeys.filter((k) => !newOnes.includes(k));
     rollback.push(step({
@@ -479,11 +475,11 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
       phase: 'rollback',
       title: `Roll back ${label}`,
       commands: [
-        ...(newOnes.length ? [`${DC} stop ${newOnes.map(shellQuote).join(' ')}`, `${DC} rm -f ${newOnes.map(shellQuote).join(' ')}`] : []),
+        ...(newOnes.length ? [`${DC} stop ${newOnes.map(shellArg).join(' ')}`, `${DC} rm -f ${newOnes.map(shellArg).join(' ')}`] : []),
         ...restores,
         `${DC} config --quiet`,
-        ...(back.length ? [`${DC} up -d --no-deps ${back.map(shellQuote).join(' ')}`] : []),
-        ...back.map((k) => `docker inspect --format '{{.Config.Image}} {{.Image}}' $(${DC} ps -q ${shellQuote(k)})`),
+        ...(back.length ? [`${DC} up -d --no-deps ${back.map(shellArg).join(' ')}`] : []),
+        ...back.map((k) => `docker inspect --format '{{.Config.Image}} {{.Image}}' $(${DC} ps -q ${shellArg(k)})`),
       ],
       expected: `Each service runs its previous image again: ${services.filter((s) => !s.newService).map((s) => `${s.composeKey} ${s.from?.image ?? '(see pre-check output)'}${s.from?.imageId ? ` ${s.from.imageId.slice(0, 19)}…` : ''}`).join(', ') || 'no image change'}. Keep the new images until the patch is signed off; never docker image prune during a rollback.`,
       onFailure: 'Previous image missing (docker image inspect fails): it was pruned; load it again from your own archive. Escalate before trying anything else.',

@@ -9,7 +9,7 @@ export type Environment = (typeof ENVIRONMENTS)[number];
 export const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
 
 // Order a promotion touches the servers in: data first, then the services
-// that read it, then the UI (same order as lib/rolloutPlan.ts has always used).
+// that read it, then the UI.
 export const EXECUTION_ORDER = ['Database', 'ChatBot / NLU', 'Chat-Service', 'Bot-Builder'] as const;
 
 // Canonical environment name, or null. 'PROD' / 'prod' become 'Prod'.

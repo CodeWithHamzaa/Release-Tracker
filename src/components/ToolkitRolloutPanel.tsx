@@ -1,34 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Check, ChevronDown, Copy, Download, PackageCheck } from 'lucide-react';
+import { ChevronDown, Download, PackageCheck } from 'lucide-react';
+import { ENVIRONMENTS } from '@/lib/environments';
 import { buildToolkitRollout, toolkitRolloutMarkdown } from '@/lib/toolkitRollout';
-import { copyText, downloadText } from '../download';
+import { downloadText } from '../download';
 import type { ServerNode } from '../useServers';
+import { CopyButton, btn, card } from './ui';
 
-const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
-const btn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white';
 const input =
   'rounded-lg border border-zinc-700/80 bg-surface-overlay px-2.5 py-1.5 text-xs text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30';
-const ENVS = ['SIT', 'UAT', 'Prod'] as const;
+const ENVS = ENVIRONMENTS;
 
-const CopyBtn: React.FC<{ text: string; label?: string }> = ({ text, label = 'Copy' }) => {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      className={btn}
-      onClick={async () => {
-        if (await copyText(text)) {
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        }
-      }}
-    >
-      {done ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-      {done ? 'Copied' : label}
-    </button>
-  );
-};
 
 // Steps for rolling the toolkit itself (alara_deploy.sh) out to one environment.
 export const ToolkitRolloutPanel: React.FC<{ servers: ServerNode[] }> = ({ servers }) => {
@@ -85,7 +66,7 @@ export const ToolkitRolloutPanel: React.FC<{ servers: ServerNode[] }> = ({ serve
               Shared-key pass (--key-file)
             </label>
             <span className="flex-1" />
-            <CopyBtn text={markdown} label="Copy all" />
+            <CopyButton text={markdown} label="Copy all" />
             <button type="button" className={btn} onClick={() => downloadText(`alara-toolkit-rollout-${env.toLowerCase()}.md`, markdown, 'text/markdown')}>
               <Download className="h-3.5 w-3.5" /> .md
             </button>
@@ -115,7 +96,7 @@ export const ToolkitRolloutPanel: React.FC<{ servers: ServerNode[] }> = ({ serve
                         {step.commands.length > 0 && (
                           <div className="mt-1 flex items-start gap-2">
                             <pre className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-black/50 p-2 font-mono text-[11px] text-emerald-200">{step.commands.join('\n')}</pre>
-                            <CopyBtn text={step.commands.join('\n')} />
+                            <CopyButton text={step.commands.join('\n')} />
                           </div>
                         )}
                         {step.notes.map((n) => (

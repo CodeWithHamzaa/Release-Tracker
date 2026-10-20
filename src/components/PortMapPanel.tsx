@@ -2,10 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Network } from 'lucide-react';
 import { findPortConflicts } from '@/lib/compose';
 import type { CatalogService } from '../useCatalog';
+import { card } from './ui';
+import { ENVIRONMENTS } from '@/lib/environments';
 
-const ENVS = ['SIT', 'UAT', 'Prod'] as const;
+const ENVS = ENVIRONMENTS;
 
-const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
 
 interface PortRow {
   environment: string;

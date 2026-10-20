@@ -6,7 +6,7 @@ import {
   ClipboardCheck,
   Copy,
   FileText,
-  FileTerminal,
+  Route,
   History,
   Loader2,
   Upload,
@@ -14,38 +14,27 @@ import {
   X,
 } from 'lucide-react';
 import { ReleaseRecord } from '@/lib/types';
+import { ENVIRONMENTS, ROLES as ALL_ROLES } from '@/lib/environments';
+import { btn, card, inputClass, primaryBtn } from './ui';
 import { ageLevel, ageText, serverHealth, versionChecks, HealthReportMeta, ServerHealth } from '@/lib/healthModel';
 import { compareSnapshots, checklistText, parseIgnoreKeys, CompareResult } from '@/lib/toolkitCompare';
 import type { ParsedSnapshot } from '@/lib/toolkitParse';
-import { buildPromotion } from '@/lib/promotionGenerator';
 import { looksLikeReceipt } from '@/lib/receiptParse';
 import { ReceiptImportModal } from './ReceiptImportModal';
-import { RiskPanel, RiskBadge } from './RiskPanel';
-import { RolloutPlanPanel } from './RolloutPlanPanel';
-import { buildRoleRiskInput, canProceed } from '@/lib/riskInputs';
+import { RiskBadge } from './RiskPanel';
+import { buildRoleRiskInput } from '@/lib/riskInputs';
 import { evaluateRoleRisk } from '@/lib/riskEngine';
-import { defaultPatchId } from '@/lib/rolloutPlan';
-import { PATCH_ID_PATTERN } from '@/lib/runbook';
 import { apiFetch, apiErrorMessage } from '../api';
-import { PromotionRunbook } from './PromotionRunbook';
 import { copyText } from '../download';
 import type { HealthApi, UploadOutcome } from '../useHealth';
 import type { ServerNode } from '../useServers';
-import type { RiskReport } from '@/lib/riskEngine';
 import type { ComposeIndex } from '../useConfigs';
 import type { StaleFlags } from '@/lib/currentVersions';
 
-const ENVS = ['SIT', 'UAT', 'Prod'] as const;
-const ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Database', 'Chat-Service'] as const;
+const ENVS = ENVIRONMENTS;
+const ROLES = ALL_ROLES;
 const SNAPSHOT_ROLES = ['Bot-Builder', 'ChatBot / NLU', 'Chat-Service'] as const; // DATABASE is out of the snapshot tool's scope
 
-const card = 'rounded-2xl border border-white/15 bg-white/[0.02] p-5 sm:p-6';
-const inputClass =
-  'w-full px-3 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500';
-const btn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed';
-const primaryBtn =
-  'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50';
 const envLabel = (e: string) => e.toUpperCase();
 
 const AGE_STYLE = {
@@ -333,96 +322,13 @@ const ServerDetail: React.FC<{
 
 // ── Release checklist (port of alara_release_compare.sh v2.1) ────────────────
 
-// ── Promotion scripts modal (lib/promotionGenerator) ────────────────────────
-
-const ROLE_SHORT: Record<string, string> = { 'Bot-Builder': 'BB', 'ChatBot / NLU': 'CHATBOT', Database: 'DB', 'Chat-Service': 'CHATSVC' };
-
-const PromotionModal: React.FC<{
-  result: CompareResult;
-  role: string;
-  sourceEnv: string;
-  targetEnv: string;
-  servers: ServerNode[];
-  risk: RiskReport;
-  onClose: () => void;
-}> = ({ result, role, sourceEnv, targetEnv, servers, risk, onClose }) => {
-  const [patchId, setPatchId] = useState(defaultPatchId(role, sourceEnv, targetEnv));
-  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
-  const gate = canProceed(risk.findings, reviewed);
-  const find = (env: string) => servers.find((s) => s.environment === env && s.role === role) ?? null;
-  const plan = useMemo(
-    () =>
-      buildPromotion({
-        compare: result,
-        role,
-        patchId: patchId.trim(),
-        sourceServer: find(sourceEnv),
-        targetServer: find(targetEnv),
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [result, role, patchId, sourceEnv, targetEnv, servers]
-  );
-  const idOk = PATCH_ID_PATTERN.test(patchId.trim());
-
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 sm:p-6" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="promotion-title"
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-surface-raised shadow-2xl"
-      >
-        <div className="flex items-center justify-between border-b border-white/15 bg-surface-raised px-6 py-4">
-          <div className="flex items-center gap-2">
-            <FileTerminal className="h-5 w-5 text-emerald-400" />
-            <div>
-              <h2 id="promotion-title" className="text-base font-bold text-white">Promotion scripts</h2>
-              <p className="text-xs text-zinc-300">
-                {role} · {envLabel(sourceEnv)} → {envLabel(targetEnv)}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white" aria-label="Close">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <label className="block max-w-sm text-xs text-zinc-300">
-            PATCH_ID (folder name for the image tars)
-            <input
-              aria-label="Promotion PATCH_ID"
-              value={patchId}
-              onChange={(e) => setPatchId(e.target.value)}
-              className={`${inputClass} mt-1 font-mono ${idOk ? '' : 'border-amber-600'}`}
-            />
-          </label>
-          <RiskPanel
-            report={risk}
-            reviewed={reviewed}
-            onToggle={(id) => setReviewed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; })}
-          />
-          <PromotionRunbook sourceEnv={envLabel(sourceEnv)} targetEnv={envLabel(targetEnv)} plan={plan} locked={gate.ok ? null : gate.reason} />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[]; records: ReleaseRecord[]; composeIndex: ComposeIndex; staleFlags: StaleFlags[] }> = ({ reports, servers, records, composeIndex, staleFlags }) => {
+const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNode[]; records: ReleaseRecord[]; composeIndex: ComposeIndex; staleFlags: StaleFlags[]; onPlan: (source: string, target: string) => void }> = ({ reports, servers, records, composeIndex, staleFlags, onPlan }) => {
   const snapshots = reports.filter((r) => r.kind === 'snapshot');
   const [role, setRole] = useState<string>('ChatBot / NLU');
   const [source, setSource] = useState('SIT');
   const [target, setTarget] = useState('UAT');
   const [ignore, setIgnore] = useState('');
   const [copied, setCopied] = useState(false);
-  const [showPromotion, setShowPromotion] = useState(false);
 
   const snap = (env: string) => snapshots.find((r) => r.role === role && r.environment === env);
   const src = snap(source);
@@ -512,8 +418,8 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
               <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy checklist'}
             </button>
             <RiskBadge report={risk} />
-            <button type="button" id="btn-generate-promotion" className={primaryBtn} onClick={() => setShowPromotion(true)}>
-              <FileTerminal className="h-4 w-4" /> Generate Promotion Scripts
+            <button type="button" id="btn-plan-promotion" className={primaryBtn} onClick={() => onPlan(source, target)}>
+              <Route className="h-4 w-4" /> Plan in Patch Planner
             </button>
           </div>
           {result.critical.length === 0 && (
@@ -525,17 +431,6 @@ const ChecklistPanel: React.FC<{ reports: HealthReportMeta[]; servers: ServerNod
           {list('EXPECTED - routinely per-environment, verify only', result.expected, 'text-amber-300')}
           {list('INFO - non-blocking', result.notes, 'text-sky-300')}
         </div>
-      )}
-      {showPromotion && result && (
-        <PromotionModal
-          result={result}
-          role={role}
-          sourceEnv={source}
-          targetEnv={target}
-          servers={servers}
-          risk={risk}
-          onClose={() => setShowPromotion(false)}
-        />
       )}
     </section>
   );
@@ -630,7 +525,8 @@ export const HealthView: React.FC<{
   staleFlags: StaleFlags[];
   onReloadServers: () => Promise<void> | void;
   onReceiptApplied: (updated: ReleaseRecord[], created: ReleaseRecord[]) => void;
-}> = ({ health, records, servers, composeIndex, staleFlags, onReloadServers, onReceiptApplied }) => {
+  onPlan: (source: string, target: string) => void;
+}> = ({ health, records, servers, composeIndex, staleFlags, onReloadServers, onReceiptApplied, onPlan }) => {
   const [pasted, setPasted] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<UploadOutcome[]>([]);
@@ -820,8 +716,7 @@ export const HealthView: React.FC<{
         />
       )}
 
-      <ChecklistPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} staleFlags={staleFlags} />
-      <RolloutPlanPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} staleFlags={staleFlags} />
+      <ChecklistPanel reports={health.reports} servers={servers} records={records} composeIndex={composeIndex} staleFlags={staleFlags} onPlan={onPlan} />
       <ToolkitPanel reports={health.reports} servers={servers} onReloadServers={onReloadServers} />
     </div>
   );

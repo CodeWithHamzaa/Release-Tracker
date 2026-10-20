@@ -79,13 +79,3 @@ export function buildRoleRiskInput(args: {
     now: args.now,
   };
 }
-
-// Whether the scripts may be shown/downloaded: no blocker, and every high
-// finding has been reviewed (ticked) by the person generating them.
-export function canProceed(findings: { id: string; severity: string }[], reviewed: ReadonlySet<string>): { ok: boolean; reason: string | null } {
-  const blockers = findings.filter((f) => f.severity === 'blocker').length;
-  if (blockers) return { ok: false, reason: `${blockers} blocker(s) must be resolved first.` };
-  const open = findings.filter((f) => f.severity === 'high' && !reviewed.has(f.id)).length;
-  if (open) return { ok: false, reason: `Tick "reviewed" on ${open} high-risk finding(s) to continue.` };
-  return { ok: true, reason: null };
-}
