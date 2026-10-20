@@ -15,6 +15,10 @@ import { compareEnvironments, EnvironmentComparison, PlanningData } from './envC
 import { checkPromotionPair, ENVIRONMENTS, sameEnvironment } from './environments.js';
 import { buildChangeIndex, changesForBuild, knownBuilds, CHANGE_KEY, ChangeBuildRow, ChangeIndex, ChangeRow, MappingRecord } from './changeMap.js';
 import { requireRole } from './auth.js';
+import { parseScopeInput, resolveScope } from './patchScope.js';
+import { buildPatchPlan, defaultPatchId } from './patchPlan.js';
+import { renderRunbook, renderSteps } from './patchRender.js';
+import { primaryComposePath } from './composeSync.js';
 
 export const planningRouter = express.Router();
 
@@ -148,6 +152,53 @@ planningRouter.get('/environments/compare', async (req: Request, res: Response) 
       return res.status(503).json({ error: 'Service Unavailable', message: 'The database is missing tables the planner reads. Run the prisma/manual/*.sql files in order in Supabase.' });
     }
     return sendDbError(res, err, 'compare the environments');
+  }
+});
+
+// POST /patch-plans/preview { source, target, scope, patchId?, tarDir? }
+// Resolves the scope and returns the plan with both outputs. Nothing is
+// stored: plans are generated on request and downloaded.
+planningRouter.post('/patch-plans/preview', async (req: Request, res: Response) => {
+  const pair = checkPromotionPair(req.body?.source, req.body?.target);
+  if (pair.ok === false) return res.status(400).json({ error: 'Bad Request', message: pair.message });
+  const parsed = parseScopeInput(req.body?.scope);
+  if (parsed.ok === false) return res.status(400).json({ error: 'Bad Request', message: parsed.message });
+  for (const k of ['patchId', 'tarDir'] as const) {
+    const v = req.body?.[k];
+    if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > 260)) return res.status(400).json({ error: 'Bad Request', message: `${k} must be text.` });
+  }
+  const includeValues = !req.user || req.user.role === 'admin';
+  try {
+    const prisma = await getPrismaClient();
+    const data = prisma ? await loadPlanningData(prisma, [pair.source, pair.target]) : EMPTY;
+    const rows = prisma ? await loadChangeRows(prisma) : { changes: [], links: [], available: false };
+    const comparison = compareEnvironments(data, { sourceEnv: pair.source, targetEnv: pair.target, includeValues });
+    const records = data.records as MappingRecord[];
+    const index = buildChangeIndex({ changes: rows.changes, links: rows.links, records });
+    const scope = resolveScope(comparison, parsed.scope, index, records);
+
+    const composeTexts: Record<string, { source: string | null; target: string | null }> = {};
+    const composeOf = (env: string, role: string) => {
+      const files = data.vaultFiles.filter((f) => sameEnvironment(f.environment, env) && f.role === role);
+      const path = primaryComposePath(files.map((f) => f.path));
+      return files.find((f) => f.path === path)?.content ?? null;
+    };
+    for (const r of comparison.roles) composeTexts[r.role] = { source: composeOf(pair.source, r.role), target: composeOf(pair.target, r.role) };
+
+    const plan = buildPatchPlan({
+      comparison,
+      scope,
+      patchId: typeof req.body?.patchId === 'string' && req.body.patchId.trim() ? req.body.patchId : defaultPatchId(pair.source, pair.target),
+      tarDir: req.body?.tarDir ?? null,
+      composeTexts,
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, warning: pair.warning, changeMapping: rows.available, scope, plan, markdown: { steps: renderSteps(plan), runbook: renderRunbook(plan) } });
+  } catch (err) {
+    if (isMissingSchema(err)) {
+      return res.status(503).json({ error: 'Service Unavailable', message: 'The database is missing tables the planner reads. Run the prisma/manual/*.sql files in order in Supabase.' });
+    }
+    return sendDbError(res, err, 'build the patch plan');
   }
 });
 

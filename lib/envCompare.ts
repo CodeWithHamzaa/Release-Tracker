@@ -162,6 +162,7 @@ export interface ConfigFileDiff {
   target: { version: number; at: string } | null;
   keys: ConfigKeyDiff[]; // differences only
   duplicates: { source: string[]; target: string[] };
+  targetEncrypted: boolean; // the target copy holds ENC[...] values (toolkit-encrypted)
 }
 
 export interface ServerRef {
@@ -514,6 +515,7 @@ function configDiffs(
       target: b ? { version: b.version, at: iso(b.createdAt)! } : null,
       keys,
       duplicates: { source: a ? parseEnvFile(a.content).duplicates : [], target: b ? parseEnvFile(b.content).duplicates : [] },
+      targetEncrypted: b ? parseEnvFile(b.content).entries.some((e) => e.encrypted) : false,
     });
   }
 

@@ -128,3 +128,29 @@ test('changes: allowed users read and write; writes are validated and stamped; d
   assert.equal((await h.call('DELETE', '/api/changes/c1', 'operator-token')).status, 403);
   assert.equal((await h.call('DELETE', '/api/changes/c1', 'admin-token')).status, 200);
 });
+
+test('plan preview: auth, validation, both outputs, no secrets', async () => {
+  const body = { source: 'SIT', target: 'UAT', scope: { mode: 'builds', selections: [{ key: `${ROLE}::memento` }] } };
+  reads = [];
+  assert.equal((await h.call('POST', '/api/patch-plans/preview', undefined, body)).status, 401);
+  assert.equal((await h.call('POST', '/api/patch-plans/preview', 'stranger-token', body)).status, 403);
+  assert.deepEqual(reads, []);
+  assert.equal((await h.call('POST', '/api/patch-plans/preview', 'admin-token', { ...body, scope: { mode: 'everything' } })).status, 400);
+  assert.equal((await h.call('POST', '/api/patch-plans/preview', 'admin-token', { ...body, target: 'SIT' })).status, 400);
+  assert.equal((await h.call('POST', '/api/patch-plans/preview', 'admin-token', { ...body, patchId: 42 })).status, 400);
+
+  const res = await h.call('POST', '/api/patch-plans/preview', 'admin-token', { ...body, patchId: 'P-1' });
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.doesNotMatch(text, /hunter2|swordfish/);
+  const out = JSON.parse(text);
+  assert.equal(out.plan.patchId, 'P-1');
+  assert.deepEqual(out.scope.items.map((i: any) => [i.service, i.to.tag]), [['memento', 'v2']]);
+  assert.ok(out.plan.steps.some((s: any) => s.commands.some((c: string) => c.startsWith('docker load -i '))));
+  assert.match(out.markdown.steps, /^# Deployment steps: P-1/);
+  assert.match(out.markdown.runbook, /## 10\. Unknowns, assumptions and risks/);
+  assert.ok(out.plan.unknowns.some((u: string) => /Compose folder on UAT/.test(u)), 'empty server registry -> unknown folder');
+
+  const op = await (await h.call('POST', '/api/patch-plans/preview', 'operator-token', body)).json();
+  assert.ok(op.plan.steps.filter((s: any) => s.phase === 'config').every((s: any) => s.manual));
+});
