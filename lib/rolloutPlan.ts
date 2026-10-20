@@ -6,7 +6,9 @@
 
 import type { RiskReport } from './riskEngine.js';
 
-export const EXECUTION_ORDER = ['Database', 'ChatBot / NLU', 'Chat-Service', 'Bot-Builder'] as const;
+import { EXECUTION_ORDER } from './environments.js';
+
+export { EXECUTION_ORDER };
 
 export interface RolloutRoleInput {
   role: string;

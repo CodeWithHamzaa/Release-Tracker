@@ -10,8 +10,10 @@
 import crypto from 'crypto';
 import type { ReleaseRecord, ReleaseStatus } from './types.js';
 import { validateNote } from './releaseNote.js';
+import { canonicalEnvironment, ENVIRONMENTS } from './environments.js';
 
-export const RECORD_ENVIRONMENTS = ['SIT', 'UAT', 'Prod'] as const;
+export { canonicalEnvironment };
+export const RECORD_ENVIRONMENTS = ENVIRONMENTS;
 export const RECORD_STATUSES: readonly ReleaseStatus[] = ['SUCCESS', 'FAILED', 'PENDING'];
 
 export const MAX_RECORDS_PER_REQUEST = 100;
@@ -33,13 +35,6 @@ const fail = (message: string): Fail => ({ ok: false, message });
 // A type guard, because this repo's tsconfig does not narrow unions on `.ok`.
 export function isFail(x: { ok: boolean }): x is Fail {
   return x.ok === false;
-}
-
-// Canonical environment name, or null. 'PROD' / 'prod' become 'Prod'.
-export function canonicalEnvironment(value: unknown): (typeof RECORD_ENVIRONMENTS)[number] | null {
-  if (typeof value !== 'string') return null;
-  const v = value.trim().toLowerCase();
-  return RECORD_ENVIRONMENTS.find((e) => e.toLowerCase() === v) ?? null;
 }
 
 function label(body: any, key: string, required: boolean, max = MAX_LABEL): Field<string | undefined> {

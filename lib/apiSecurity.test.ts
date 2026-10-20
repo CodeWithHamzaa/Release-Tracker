@@ -1,18 +1,10 @@
 // End-to-end checks of the real Express app (lib/app.ts) in strict/production
-// mode. Nothing leaves the process: Supabase Auth is a local HTTP stub of
-// GET /auth/v1/user, and the database is a fake Prisma client injected through
-// the globalThis.prismaGlobal hook that lib/prisma.ts already honours.
+// mode, through lib/apiTestHarness.ts (nothing leaves the process).
 
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { startApi, ApiHarness } from './apiTestHarness.js';
 
-const USERS: Record<string, string> = {
-  'admin-token': 'admin@x.com',
-  'operator-token': 'operator@x.com',
-  'stranger-token': 'stranger@x.com',
-};
 const SECRET = 'DB_PASSWORD=hunter2';
 
 let calls: string[] = [];
@@ -50,42 +42,14 @@ function fakePrisma() {
   };
 }
 
-let supabase: http.Server;
-let api: http.Server;
-let base = '';
+let harness: ApiHarness;
 
 before(async () => {
-  supabase = http.createServer((req, res) => {
-    const token = (req.headers.authorization || '').replace('Bearer ', '');
-    const email = USERS[token];
-    res.setHeader('Content-Type', 'application/json');
-    if (req.url?.startsWith('/auth/v1/user') && email) {
-      res.end(JSON.stringify({ id: `id-${token}`, aud: 'authenticated', role: 'authenticated', email, app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() }));
-    } else {
-      res.statusCode = 401;
-      res.end(JSON.stringify({ msg: 'invalid JWT', code: 401 }));
-    }
-  });
-  await new Promise<void>((r) => supabase.listen(0, '127.0.0.1', r));
-
-  process.env.VERCEL = '1'; // strict mode, as in production
-  process.env.DATABASE_URL = '';
-  (globalThis as any).prismaGlobal = fakePrisma();
-  // The first test removes SUPABASE_URL to prove strict mode fails closed.
-  process.env.SUPABASE_ANON_KEY = 'anon';
-  process.env.ALLOWED_EMAILS = 'operator@x.com';
-  process.env.ADMIN_EMAILS = 'admin@x.com';
-
-  const { default: app } = await import('./app.js');
-  api = app.listen(0, '127.0.0.1');
-  await new Promise<void>((r) => api.once('listening', r));
-  base = `http://127.0.0.1:${(api.address() as AddressInfo).port}`;
+  // The first test runs without SUPABASE_URL to prove strict mode fails closed.
+  harness = await startApi(fakePrisma());
 });
 
-after(() => {
-  supabase.close();
-  api.close();
-});
+after(() => harness.close());
 
 beforeEach(() => {
   calls = [];
@@ -95,13 +59,7 @@ beforeEach(() => {
   process.env.ADMIN_EMAILS = 'admin@x.com';
 });
 
-function call(method: string, path: string, token?: string, body?: unknown, raw?: string) {
-  return fetch(base + path, {
-    method,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined || raw ? { 'Content-Type': 'application/json' } : {}) },
-    body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined),
-  });
-}
+const call = (...args: Parameters<ApiHarness['call']>) => harness.call(...args);
 
 const record = { environment: 'SIT', server: 'Bot-Builder', service: 'api', version: 'v1.2.3', note: 'Released.' };
 
@@ -109,7 +67,7 @@ test('strict mode without Supabase settings fails closed (503), even with a toke
   const res = await call('GET', '/api/records', 'admin-token');
   assert.equal(res.status, 503);
   assert.deepEqual(calls, []);
-  process.env.SUPABASE_URL = `http://127.0.0.1:${(supabase.address() as AddressInfo).port}`;
+  process.env.SUPABASE_URL = harness.supabaseUrl;
 });
 
 test('strict mode with no ALLOWED_EMAILS / ADMIN_EMAILS fails closed (503) for everyone', async () => {

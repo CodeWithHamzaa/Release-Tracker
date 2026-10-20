@@ -94,6 +94,19 @@ export interface ComposeServiceSummary {
   ports: string; // "80→80, 443→443"
   envFiles: string;
   volumes: string;
+  // Read by the patch planner (lib/envCompare.ts) only; optional so older
+  // callers that build summaries by hand keep compiling.
+  dependsOn?: string[];
+  networks?: string[];
+  environmentKeys?: string[]; // keys of the inline environment: block (values are never kept)
+}
+
+// depends_on / networks may be a list or a map; environment: a list of
+// KEY=VALUE strings or a map.
+function keysOf(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x) => typeof x === 'string').map((x) => String(x).split('=')[0]);
+  if (v && typeof v === 'object') return Object.keys(v);
+  return [];
 }
 
 export function summarizeCompose(text: string): ComposeServiceSummary[] {
@@ -118,6 +131,9 @@ export function summarizeCompose(text: string): ComposeServiceSummary[] {
         .join(', '),
       envFiles: list(def.env_file).join(', '),
       volumes: list(def.volumes).join(', '),
+      dependsOn: keysOf(def.depends_on).sort(),
+      networks: keysOf(def.networks).sort(),
+      environmentKeys: keysOf(def.environment).sort(),
     };
   });
 }

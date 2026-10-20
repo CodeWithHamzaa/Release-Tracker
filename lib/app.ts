@@ -10,6 +10,7 @@
 import express, { Request, Response } from 'express';
 import { ReleaseRecord } from './types.js';
 import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
+import { sendDbError, isMissingSchema } from './httpErrors.js';
 import { requireAuth, requireRole } from './auth.js';
 import { isFail, normalizeNewRecords, normalizeRecordPatch } from './recordInput.js';
 import { findPortConflicts, PortBinding } from './compose.js';
@@ -21,6 +22,7 @@ import { parseReceipt, looksLikeReceipt, RECEIPT_MAX_BYTES } from './receiptPars
 import { matchReceipt, receiptNote } from './receiptMatch.js';
 import { imageTag } from './configDrift.js';
 import { DEFAULT_DEVELOPER } from './developers.js';
+import { planningRouter } from './planningApi.js';
 import crypto from 'crypto';
 
 const app = express();
@@ -166,25 +168,6 @@ const memoryRecords: ReleaseRecord[] = [
   },
 ];
 
-// Helper: turn a database failure into a response. An unreachable or
-// unconfigured database is a 503; anything else (a failed query) is a 500.
-// Never falls back to memoryRecords -- that fallback is only for local dev
-// with no database configured, where getPrismaClient() returns null.
-function sendDbError(res: Response, err: unknown, action: string) {
-  if (err instanceof DatabaseUnavailableError) {
-    return res.status(503).json({
-      error: 'Service Unavailable',
-      message: 'The release database is unreachable. Check DATABASE_URL.',
-      reason: err.reason,
-    });
-  }
-  console.error(`Failed to ${action}:`, err);
-  return res.status(500).json({
-    error: 'Internal Server Error',
-    message: `Failed to ${action}.`,
-  });
-}
-
 // Prisma's "record to update/delete does not exist" error.
 function isRecordNotFound(err: unknown): boolean {
   return (err as { code?: string })?.code === 'P2025';
@@ -210,7 +193,10 @@ router.get('/health', async (req: Request, res: Response) => {
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
 // requireAuth also sets req.user.role; destructive routes and Config Vault
 // contents add requireRole('admin') below.
-router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts', '/environments'], requireAuth);
+
+// Patch planner (lib/planningApi.ts): read-only comparison and plans.
+router.use(planningRouter);
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {
@@ -542,10 +528,7 @@ async function refuseIfSynced(prisma: any, serviceId: string, res: Response): Pr
 
 // The tables 006_vault_sync.sql adds. Until it has run, Prisma reports a
 // missing table (P2021) or column (P2022).
-function isMissingVaultSyncSchema(err: unknown): boolean {
-  const code = (err as { code?: string })?.code;
-  return code === 'P2021' || code === 'P2022';
-}
+const isMissingVaultSyncSchema = isMissingSchema;
 const VAULT_SYNC_SCHEMA_MESSAGE = 'The database is missing the vault-sync tables. Run prisma/manual/006_vault_sync.sql in Supabase.';
 
 type SyncOutcome =
