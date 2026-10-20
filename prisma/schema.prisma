@@ -174,3 +174,39 @@ model HealthReport {
 
   @@index([environment, role, kind, reportedAt])
 }
+
+// Feature / fix / change identifiers (prisma/manual/007_change_mapping.sql).
+// Release-record notes naming a key are read on the fly (lib/changeMap.ts),
+// never copied here; these rows hold only what a person states by hand.
+model Change {
+  id        String        @id @default(uuid())
+  key       String        @unique // e.g. JIRA-123
+  title     String
+  kind      String        @default("fix") // feature | fix | change
+  notes     String?
+  createdBy String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  builds    ChangeBuild[]
+}
+
+// "This build introduced / contains this change". Unverified until a person
+// marks it verified with evidence.
+model ChangeBuild {
+  id         String    @id @default(uuid())
+  changeId   String
+  change     Change    @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  role       String
+  service    String
+  version    String
+  relation   String    @default("introduced") // introduced | included
+  verified   Boolean   @default(false)
+  evidence   String?
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  verifiedBy String?
+  verifiedAt DateTime?
+
+  @@unique([changeId, role, service, version])
+  @@index([role, service])
+}
