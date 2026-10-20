@@ -193,7 +193,7 @@ router.get('/health', async (req: Request, res: Response) => {
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
 // requireAuth also sets req.user.role; destructive routes and Config Vault
 // contents add requireRole('admin') below.
-router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts', '/environments'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts', '/environments', '/changes', '/patch-plans'], requireAuth);
 
 // Patch planner (lib/planningApi.ts): read-only comparison and plans.
 router.use(planningRouter);
