@@ -8,9 +8,10 @@
 // dev server into the serverless bundle.
 
 import express, { Request, Response } from 'express';
-import { ReleaseRecord, ReleaseStatus } from './types.js';
+import { ReleaseRecord } from './types.js';
 import { getPrismaClient, DatabaseUnavailableError } from './prisma.js';
-import { requireAuth } from './auth.js';
+import { requireAuth, requireRole } from './auth.js';
+import { isFail, normalizeNewRecords, normalizeRecordPatch } from './recordInput.js';
 import { findPortConflicts, PortBinding } from './compose.js';
 import { isComposePath, planComposeSync, primaryComposePath } from './composeSync.js';
 import { parseRecordDate } from './recordDate.js';
@@ -25,7 +26,15 @@ import crypto from 'crypto';
 const app = express();
 const router = express.Router();
 
-app.use(express.json({ limit: '10mb' }));
+// Body limits. The vault, health-report and receipt routes carry whole files
+// (each capped at 1 MB of text by its route, below, and JSON escaping can
+// roughly double that), so they get 3 MB. Vercel's serverless request body cap
+// is documented as 4.5 MB (not re-verified against current docs), so stay under
+// it: a larger body would be cut off by the platform before this code could
+// answer with a clear message. Everything else is small JSON.
+const FILE_ROUTES = ['configs', 'health-reports', 'receipts'].flatMap((p) => [`/api/${p}`, `/${p}`]);
+app.use(FILE_ROUTES, express.json({ limit: '3mb' }));
+app.use(express.json({ limit: '256kb' }));
 
 // Initial baseline mock data
 const memoryRecords: ReleaseRecord[] = [
@@ -181,44 +190,6 @@ function isRecordNotFound(err: unknown): boolean {
   return (err as { code?: string })?.code === 'P2025';
 }
 
-// Fields the edit form may change. Anything else in a PATCH body (id,
-// createdAt, unknown keys) is ignored rather than handed to Prisma.
-const EDITABLE_FIELDS = [
-  'environment',
-  'server',
-  'service',
-  'version',
-  'developerName',
-  'status',
-  'note',
-  'isBuildUpdate',
-  'isEnvUpdate',
-  'envDetails',
-  'isConfigUpdate',
-  'configDetails',
-  'hasCommands',
-  'commandDetails',
-  'source',
-  'added_by',
-] as const;
-
-function pickEditableFields(body: any): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
-  if (!body || typeof body !== 'object') return data;
-  for (const key of EDITABLE_FIELDS) {
-    if (body[key] !== undefined) data[key] = body[key];
-  }
-  if (data.status !== undefined) {
-    const raw = String(data.status).toUpperCase();
-    if (['SUCCESS', 'FAILED', 'PENDING'].includes(raw)) {
-      data.status = raw;
-    } else {
-      delete data.status;
-    }
-  }
-  return data;
-}
-
 // 1. Health check -- also reports whether the database is actually reachable,
 // so a misconfigured deployment is visible from one URL.
 router.get('/health', async (req: Request, res: Response) => {
@@ -237,6 +208,8 @@ router.get('/health', async (req: Request, res: Response) => {
 // path, not router-wide: this router is also mounted at the root (see the
 // bottom of the file), where a blanket guard would 401 the SPA's own pages
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
+// requireAuth also sets req.user.role; destructive routes and Config Vault
+// contents add requireRole('admin') below.
 router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts'], requireAuth);
 
 // 2. GET all release records
@@ -278,117 +251,16 @@ router.get('/records/:id', async (req: Request, res: Response) => {
   res.json(record);
 });
 
-// 4. POST create single or batch release records
+// 4. POST create single or batch release records. Input rules live in
+// lib/recordInput.ts; id, timestamps and added_by are always set server-side.
 router.post('/records', async (req: Request, res: Response) => {
   try {
-    const body = req.body;
-    const isDirectArray = Array.isArray(body) && body.length > 0;
-    const isBatchServices = Boolean(body.services) && Array.isArray(body.services) && body.services.length > 0;
-
-    const environment = String((isDirectArray ? body[0]?.environment : body.environment) || 'SIT').trim();
-    const added_by = String((isDirectArray ? body[0]?.added_by : body.added_by) || 'A.Hameed').trim();
-    const globalDeveloperName = String((isDirectArray ? body[0]?.developerName : body.developerName) || added_by).trim();
-    const source = String((isDirectArray ? body[0]?.source : body.source) || 'Teams Group').trim();
-    const note = (isDirectArray ? body[0]?.note : body.note) ? String(isDirectArray ? body[0]?.note : body.note).trim() : null;
-
-    const isBuildUpdate = Boolean(isDirectArray ? body[0]?.isBuildUpdate ?? true : body.isBuildUpdate ?? true);
-    const isEnvUpdate = Boolean(isDirectArray ? body[0]?.isEnvUpdate : body.isEnvUpdate);
-    const envDetails = (isDirectArray ? body[0]?.envDetails : body.envDetails) ? String(isDirectArray ? body[0]?.envDetails : body.envDetails).trim() : null;
-    const isConfigUpdate = Boolean(isDirectArray ? body[0]?.isConfigUpdate : body.isConfigUpdate);
-    const configDetails = (isDirectArray ? body[0]?.configDetails : body.configDetails) ? String(isDirectArray ? body[0]?.configDetails : body.configDetails).trim() : null;
-    const hasCommands = Boolean(isDirectArray ? body[0]?.hasCommands : body.hasCommands);
-    const commandDetails = (isDirectArray ? body[0]?.commandDetails : body.commandDetails) ? String(isDirectArray ? body[0]?.commandDetails : body.commandDetails).trim() : null;
-
-    const rawStatus = String((isDirectArray ? body[0]?.status : body.status) || 'PENDING').trim().toUpperCase();
-    const normalizedStatus: ReleaseStatus = ['SUCCESS', 'FAILED', 'PENDING'].includes(rawStatus)
-      ? (rawStatus as ReleaseStatus)
-      : 'PENDING';
-
-    const timestamp = new Date().toISOString();
-    const createdRecords: ReleaseRecord[] = [];
-
-    if (isBatchServices) {
-      for (const svc of body.services) {
-        const itemStatus = svc.status ? String(svc.status).trim().toUpperCase() : normalizedStatus;
-        const item: ReleaseRecord = {
-          id: `rel-${crypto.randomUUID()}`,
-          environment: (environment as any) || 'SIT',
-          server: String(svc.server || 'Server').trim(),
-          service: String(svc.service || 'Service').trim(),
-          version: String(svc.version || 'v1.0.0').trim(),
-          developerName: String(svc.developerName || globalDeveloperName).trim(),
-          status: ['SUCCESS', 'FAILED', 'PENDING'].includes(itemStatus) ? (itemStatus as ReleaseStatus) : 'PENDING',
-          isBuildUpdate: svc.isBuildUpdate ?? isBuildUpdate,
-          isEnvUpdate,
-          envDetails,
-          isConfigUpdate,
-          configDetails,
-          hasCommands,
-          commandDetails,
-          note,
-          source,
-          added_by,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        createdRecords.push(item);
-      }
-    } else if (isDirectArray) {
-      for (const item of body) {
-        const record: ReleaseRecord = {
-          id: item.id || `rel-${crypto.randomUUID()}`,
-          environment: item.environment || environment,
-          server: String(item.server || 'Server').trim(),
-          service: String(item.service || 'Service').trim(),
-          version: String(item.version || 'v1.0.0').trim(),
-          developerName: String(item.developerName || globalDeveloperName).trim(),
-          status: item.status || normalizedStatus,
-          isBuildUpdate: item.isBuildUpdate ?? isBuildUpdate,
-          isEnvUpdate: item.isEnvUpdate ?? isEnvUpdate,
-          envDetails: item.envDetails ?? envDetails,
-          isConfigUpdate: item.isConfigUpdate ?? isConfigUpdate,
-          configDetails: item.configDetails ?? configDetails,
-          hasCommands: item.hasCommands ?? hasCommands,
-          commandDetails: item.commandDetails ?? commandDetails,
-          note: item.note ?? note,
-          source: item.source ?? source,
-          added_by: item.added_by ?? added_by,
-          createdAt: item.createdAt || timestamp,
-          updatedAt: item.updatedAt || timestamp,
-        };
-        createdRecords.push(record);
-      }
-    } else {
-      const record: ReleaseRecord = {
-        id: body.id || `rel-${crypto.randomUUID()}`,
-        environment: body.environment || environment,
-        server: String(body.server || 'Server').trim(),
-        service: String(body.service || 'Service').trim(),
-        version: String(body.version || 'v1.0.0').trim(),
-        developerName: String(body.developerName || globalDeveloperName).trim(),
-        status: normalizedStatus,
-        isBuildUpdate,
-        isEnvUpdate,
-        envDetails,
-        isConfigUpdate,
-        configDetails,
-        hasCommands,
-        commandDetails,
-        note,
-        source,
-        added_by,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      createdRecords.push(record);
-    }
-
-    // The release note is mandatory on every record (batch, array or single).
-    for (const record of createdRecords) {
-      const noteError = validateNote(record.note);
-      if (noteError) return res.status(400).json({ error: 'Bad Request', message: noteError });
-      record.note = String(record.note).trim();
-    }
+    const parsed = normalizeNewRecords(req.body, {
+      addedBy: req.user?.email || 'local-dev',
+      defaultDeveloper: DEFAULT_DEVELOPER,
+    });
+    if (isFail(parsed)) return res.status(400).json({ error: 'Bad Request', message: parsed.message });
+    const createdRecords: ReleaseRecord[] = parsed.records;
 
     // Persist to the database when one is configured; only local dev with no
     // database keeps records in memory.
@@ -441,15 +313,9 @@ router.post('/records', async (req: Request, res: Response) => {
 // 5. PATCH update release record
 router.patch('/records/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = pickEditableFields(req.body);
-
-  // A PATCH that does not touch the note keeps working; one that sends it must
-  // not blank it out.
-  if (req.body?.note !== undefined) {
-    const noteError = validateNote(req.body.note);
-    if (noteError) return res.status(400).json({ error: 'Bad Request', message: noteError });
-    data.note = String(req.body.note).trim();
-  }
+  const patch = normalizeRecordPatch(req.body);
+  if (isFail(patch)) return res.status(400).json({ error: 'Bad Request', message: patch.message });
+  const data = patch.data;
 
   // The deployment date can be corrected or backdated (createdAt is what the
   // feed and Drift Matrix order by).
@@ -497,7 +363,7 @@ router.patch('/records/:id', async (req: Request, res: Response) => {
 });
 
 // 6. DELETE release record
-router.delete('/records/:id', async (req: Request, res: Response) => {
+router.delete('/records/:id', requireRole('admin'), async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
@@ -639,7 +505,7 @@ router.patch('/catalog/services/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/catalog/services/:id', async (req: Request, res: Response) => {
+router.delete('/catalog/services/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
@@ -1011,7 +877,7 @@ router.get('/configs/:fileId/versions', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/configs/versions/:id', async (req: Request, res: Response) => {
+router.get('/configs/versions/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
@@ -1020,13 +886,14 @@ router.get('/configs/versions/:id', async (req: Request, res: Response) => {
       include: { file: { select: { id: true, environment: true, role: true, path: true } } },
     });
     if (!version) return res.status(404).json({ error: 'Not Found', message: 'Version not found.' });
+    res.set('Cache-Control', 'no-store'); // plaintext secrets: keep out of shared caches
     res.json({ success: true, version });
   } catch (err) {
     return sendDbError(res, err, 'load the file');
   }
 });
 
-router.post('/configs', async (req: Request, res: Response) => {
+router.post('/configs', requireRole('admin'), async (req: Request, res: Response) => {
   const environment = cleanLabel(req.body?.environment);
   const role = cleanLabel(req.body?.role);
   const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
@@ -1101,7 +968,7 @@ router.post('/configs', async (req: Request, res: Response) => {
 // Re-apply the vault to the catalog: every environment + role, or one when
 // the body names it. Backfills files saved before the sync existed and
 // retries failed syncs.
-router.post('/configs/sync', async (req: Request, res: Response) => {
+router.post('/configs/sync', requireRole('admin'), async (req: Request, res: Response) => {
   const environment = cleanLabel(req.body?.environment);
   const role = cleanLabel(req.body?.role);
   try {
@@ -1120,7 +987,7 @@ router.post('/configs/sync', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/configs/:fileId', async (req: Request, res: Response) => {
+router.delete('/configs/:fileId', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
@@ -1244,7 +1111,7 @@ router.post('/health-reports', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/health-reports/:id', async (req: Request, res: Response) => {
+router.delete('/health-reports/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const prisma = await requireCatalogDb(res);
     if (!prisma) return;
@@ -1401,6 +1268,20 @@ router.get('/receipts', async (req: Request, res: Response) => {
 // arrives, exactly one mount matches and responds.
 app.use('/api', router);
 app.use(router);
+
+// Body-parser failures (too large, malformed JSON) as JSON, like every other
+// API error, instead of Express's default HTML page.
+app.use((err: any, req: Request, res: Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Payload Too Large', message: 'That request is too large.' });
+  }
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Bad Request', message: 'Request body is not valid JSON.' });
+  }
+  console.error('Unhandled API error:', err);
+  res.status(500).json({ error: 'Internal Server Error', message: 'Unexpected error.' });
+});
 
 export { app };
 export default app;
