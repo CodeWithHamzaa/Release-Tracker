@@ -206,6 +206,8 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
   const tarOverride = input.tarDir?.trim() || null;
   if (tarOverride && !SAFE_DIR.test(tarOverride)) errors.push('Tar folder must be an absolute path of letters, digits, dot, dash, underscore and slash.');
 
+  // A bad patch ID or tar folder would end up inside every command: emit none.
+  const unusable = errors.length > scope.errors.length;
   const roleOf = new Map(comparison.roles.map((r) => [r.role, r]));
   const roles = [...new Set([...scope.items.map((i) => i.role), ...scope.configRoles])].filter((r) => roleOf.has(r));
   roles.sort((a, b) => comparison.roles.findIndex((r) => r.role === a) - comparison.roles.findIndex((r) => r.role === b));
@@ -290,7 +292,7 @@ export function buildPatchPlan(input: PlanInput): PatchPlan {
     if (changedFiles.length && !Object.keys(tDefs).length) unknowns.push(`${T} / ${role}: which services read ${changedFiles.join(', ')} is unknown (no ${T} compose file in the vault); recreate them by hand.`);
 
     servers.push({ role, label, server: srv, composeDir, composeFile, tarDir, services, config, reviewOnly, missingRequired: rc.missingRequired });
-    if (!services.length && !config.length) continue;
+    if (unusable || (!services.length && !config.length)) continue;
 
     const step = (s: Omit<PlanStep, 'role' | 'server' | 'unknowns' | 'manual' | 'file' | 'setting'> & Partial<Pick<PlanStep, 'unknowns' | 'manual' | 'file' | 'setting'>>) =>
       ({ role, server: label, file: null, setting: null, unknowns: [], manual: false, ...s }) as PlanStep;

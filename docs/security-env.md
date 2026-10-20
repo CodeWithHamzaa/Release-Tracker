@@ -28,9 +28,17 @@ list gets 403. Public sign-ups no longer grant access by themselves.
 | Read Config Vault file **contents** (`GET /api/configs/versions/:id`) | no (403) | yes |
 | Write the vault (`POST /api/configs`, `POST /api/configs/sync`) | no (403) | yes |
 | Delete records, catalog services, vault files, health reports | no (403) | yes |
+| Compare environments, preview patch plans (`/api/environments/compare`, `/api/patch-plans/preview`) | yes, **without config values** (keys only; every config step is "set by hand") | yes, values **redacted** |
+| Read, add and verify change mappings (`/api/changes`) | yes | yes |
+| Delete changes or change mappings | no (403) | yes |
 
 Vault contents are stored as uploaded, including plaintext secrets. Writes are
 admin-only too because the save response includes the previous file content.
+
+The planner reads vault files on the server and returns only redacted values
+(lib/redact.ts): sensitive key names, `ENC[...]`, `SHA256:` hashes, private
+keys, JWTs, URL passwords and `--password=`-style flags never leave the API.
+Raw compose files are never returned by the planner.
 
 **Not locked out:** if `ADMIN_EMAILS` is unset, everyone in `ALLOWED_EMAILS` is
 an admin (the behaviour before roles existed) and a warning is logged. Set

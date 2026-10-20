@@ -28,3 +28,10 @@ test('free text: KEY=value secrets, URL passwords and key blocks are masked line
   assert.equal(out, `A=1\nDB_PASSWORD=${REDACTED}\n  - API_KEY: ${REDACTED}\nurl http://u:${REDACTED}@h/x\n${REDACTED}`);
   assert.doesNotMatch(out, /hunter2|abc|:p@/);
 });
+
+test('free text: secrets inside a line (command flags, -e options) are masked too', () => {
+  const out = redactText('    command: ["serve", "--db-password=hunter2", "--port=80"]\n    entrypoint: run -e API_TOKEN=abc123 --verbose');
+  assert.doesNotMatch(out, /hunter2|abc123/);
+  assert.match(out, /--port=80/);
+  assert.match(out, /--verbose/);
+});

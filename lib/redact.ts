@@ -24,6 +24,9 @@ export function isSensitiveKey(key: string): boolean {
 
 const PRIVATE_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
 const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/;
+// A sensitive-looking name followed by = or : inside a line, e.g.
+// `command: --db-password=xyz` or `-e API_TOKEN=abc`.
+const INLINE_SECRET = /([A-Za-z0-9_.-]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|private[_-]?key)[A-Za-z0-9_.-]*\s*[=:]\s*)[^\s'"]+/gi;
 const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)([^\s:/@]+):([^\s@/]+)@/gi;
 
 // True when the value alone shows it is secret, whatever its key.
@@ -52,7 +55,9 @@ export function redactText(text: string): string {
       const m = /^(\s*(?:-\s*)?(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.-]*)(\s*[=:]\s*)(.*)$/.exec(line);
       if (m && m[4] && isSecret(m[2], m[4].trim())) return `${m[1]}${m[2]}${m[3]}${REDACTED}`;
       if (PRIVATE_KEY.test(line) || JWT.test(line)) return REDACTED;
-      return line.replace(URL_CREDENTIALS, (_x, scheme, user) => `${scheme}${user}:${REDACTED}@`);
+      return line
+        .replace(URL_CREDENTIALS, (_x, scheme, user) => `${scheme}${user}:${REDACTED}@`)
+        .replace(INLINE_SECRET, (_x, name) => `${name}${REDACTED}`);
     })
     .join('\n');
 }

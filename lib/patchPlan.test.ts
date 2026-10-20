@@ -228,8 +228,12 @@ test('both outputs come from the same steps: same numbers, titles, commands and 
 });
 
 test('a bad patch ID or tar folder is an error; a tar folder override is used verbatim', () => {
-  assert.ok(plan(setup(), { selections: [{ key: `${R}::memento` }] }, { patchId: 'bad id;rm' }).errors.length);
-  assert.ok(plan(setup(), { selections: [{ key: `${R}::memento` }] }, { tarDir: 'relative/dir' }).errors.length);
+  for (const opts of [{ patchId: "bad id';rm -rf /" }, { tarDir: 'relative/dir' }, { tarDir: "/data/x'; reboot" }]) {
+    const bad = plan(setup(), { selections: [{ key: `${R}::memento` }] }, opts);
+    assert.ok(bad.errors.length, JSON.stringify(opts));
+    assert.equal(bad.steps.length, 0, 'no commands are emitted from a bad patch ID or folder');
+    assert.match(renderSteps(bad), /Do not use this plan yet/);
+  }
   const p = plan(setup(), { selections: [{ key: `${R}::memento` }] }, { tarDir: '/data/incoming' });
   assert.ok(cmds(p, 'load')[0] === 'docker load -i /data/incoming/memento_v1.1.9.tar');
 });
