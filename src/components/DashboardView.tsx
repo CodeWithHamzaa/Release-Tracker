@@ -10,9 +10,16 @@ import {
   Filter,
   Loader2,
 } from 'lucide-react';
-import { ReleaseRecord } from '@/lib/types';
+import { Release, ReleaseRecord } from '@/lib/types';
+import { buildBundles, ReleaseBundle } from '@/lib/releaseFeed';
+import { envLabel } from '@/lib/environments';
 import { matchesSearch } from '@/lib/recordSearch';
-import { ReleaseCard } from './ReleaseCard';
+import { ReleaseBundleCard } from './ReleaseBundleCard';
+import { BundleRunbookModal } from './BundleRunbookModal';
+import type { ServerNode } from '../useServers';
+import type { CatalogService } from '../useCatalog';
+import type { ActionResult } from '../useReleases';
+import { Message } from './ui';
 import { StatsBar } from './StatsBar';
 import { EditRecordModal } from './EditRecordModal';
 import { ageText, sameVersion, RunningIndex } from '@/lib/healthModel';
@@ -26,6 +33,17 @@ interface DashboardViewProps {
   onPlanRecord?: (record: ReleaseRecord) => void; // open the Patch Planner for this build
   // What the servers actually run, from uploaded status/snapshot reports.
   running?: RunningIndex;
+  // Release bundles and their actions (src/useReleases.ts).
+  releases: Release[];
+  releasesWarning?: string | null;
+  servers: ServerNode[];
+  catalog: CatalogService[];
+  actions: {
+    setStatus: (bundle: ReleaseBundle, status: string) => Promise<ActionResult>;
+    applyStatusToRecords: (bundle: ReleaseBundle) => Promise<ActionResult>;
+    promote: (bundle: ReleaseBundle, target: string) => Promise<ActionResult>;
+    undo: (releaseId: string) => Promise<ActionResult>;
+  };
 }
 
 // Under a Drift Matrix cell: what the server reported running, when it
@@ -92,6 +110,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onRecordDeleted,
   running,
   onPlanRecord,
+  releases,
+  releasesWarning,
+  servers,
+  catalog,
+  actions,
 }) => {
   const [activeTab, setActiveTab] = useState<'feed' | 'matrix'>('feed');
 
@@ -102,6 +125,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [editingRecord, setEditingRecord] = useState<ReleaseRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string; undoId?: string } | null>(null);
+  const [runbookBundle, setRunbookBundle] = useState<ReleaseBundle | null>(null);
+
+  // Runs one release action, with a busy marker on its row and the outcome
+  // (plus Undo after a promotion) in the notice bar.
+  const run = async (bundle: ReleaseBundle, action: () => Promise<ActionResult>, undoable = false) => {
+    setBusyKey(bundle.key);
+    setNotice(null);
+    try {
+      const r = await action();
+      setNotice({ kind: r.ok ? 'ok' : 'error', text: r.message, undoId: undoable && r.ok && r.release?.canUndo ? r.release.id : undefined });
+      if (r.ok && undoable && r.release) setExpandedRowId(r.release.id);
+    } finally {
+      setBusyKey(null);
+    }
+  };
 
   const handleEditClick = (record: ReleaseRecord) => {
     setEditingRecord(record);
@@ -220,22 +260,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     [records, searchQuery]
   );
 
-  const envCounts = useMemo(() => {
-    const counts: Record<EnvFilter, number> = { All: searchedRecords.length, SIT: 0, UAT: 0, Prod: 0 };
-    for (const r of searchedRecords) {
-      const tab = ENV_TABS.find((t) => t.value !== 'All' && t.value.toUpperCase() === r.environment.toUpperCase());
+
+  // ── Release bundles ────────────────────────────────────────────────────────
+  // One row per release event. A bundle matches the search when its title or
+  // any of its services does; the environment tab filters bundles.
+  const bundles = useMemo(() => buildBundles(releases, records), [releases, records]);
+  const searchedBundles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return bundles;
+    const hits = new Set(searchedRecords.map((r) => r.id));
+    return bundles.filter((b) => b.title.toLowerCase().includes(q) || b.records.some((r) => hits.has(r.id)));
+  }, [bundles, searchedRecords, searchQuery]);
+  const bundleEnvCounts = useMemo(() => {
+    const counts: Record<EnvFilter, number> = { All: searchedBundles.length, SIT: 0, UAT: 0, Prod: 0 };
+    for (const b of searchedBundles) {
+      const tab = ENV_TABS.find((t) => t.value !== 'All' && t.value.toUpperCase() === b.environment.toUpperCase());
       if (tab) counts[tab.value] += 1;
     }
     return counts;
-  }, [searchedRecords]);
-
-  const filteredRecords = useMemo(
-    () =>
-      searchedRecords
-        .filter((r) => selectedEnv === 'All' || r.environment.toUpperCase() === selectedEnv.toUpperCase())
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [searchedRecords, selectedEnv]
+  }, [searchedBundles]);
+  const filteredBundles = useMemo(
+    () => searchedBundles.filter((b) => selectedEnv === 'All' || b.environment.toUpperCase() === selectedEnv.toUpperCase()),
+    [searchedBundles, selectedEnv]
   );
+  const releaseById = useMemo(() => new Map(releases.map((r) => [r.id, r])), [releases]);
+  const promotedFrom = (b: ReleaseBundle) => {
+    const src = b.release?.promotedFromId ? releaseById.get(b.release.promotedFromId) : null;
+    return src ? `${envLabel(src.environment)} · "${src.title}"` : null;
+  };
 
   const tabClass = (active: boolean) =>
     `inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
@@ -303,8 +355,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3 text-xs">
           <span className="flex items-center gap-2 text-zinc-400">
             {isLoading && <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />}
-            Showing <strong className="font-semibold text-white">{filteredRecords.length}</strong>{' '}
-            of {records.length} records
+            Showing <strong className="font-semibold text-white">{filteredBundles.length}</strong>{' '}
+            of {bundles.length} releases ({records.length} service records)
           </span>
           {hasActiveFilters && (
             <button
@@ -326,7 +378,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <Layers className="h-4 w-4" />
           Audit Log
           <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[11px] text-zinc-300">
-            {filteredRecords.length}
+            {filteredBundles.length}
           </span>
         </button>
         <button id="tab-drift-matrix" onClick={() => setActiveTab('matrix')} className={tabClass(activeTab === 'matrix')}>
@@ -373,7 +425,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     active ? 'bg-emerald-400/20 text-emerald-100' : 'bg-white/10 text-zinc-300'
                   }`}
                 >
-                  {envCounts[tab.value]}
+                  {bundleEnvCounts[tab.value]}
                 </span>
               </button>
             );
@@ -491,7 +543,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* ── TAB: Audit log feed ── */}
       {activeTab === 'feed' && (
         <>
-          {filteredRecords.length === 0 ? (
+          {releasesWarning && (
+            <div className="mb-3">
+              <Message kind="warn">Release bundles unavailable: {releasesWarning} Records are shown one per row.</Message>
+            </div>
+          )}
+          {notice && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="flex-1">
+                <Message kind={notice.kind}>{notice.text}</Message>
+              </div>
+              {notice.undoId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = notice.undoId!;
+                    const b = bundles.find((x) => x.key === id);
+                    if (b) run(b, () => actions.undo(id));
+                  }}
+                  className="rounded-lg border border-white/30 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-zinc-100 hover:border-white/50"
+                >
+                  Undo
+                </button>
+              )}
+            </div>
+          )}
+          {filteredBundles.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-surface-raised px-6 py-16 text-center">
               <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-zinc-400">
                 <Layers className="h-5 w-5" />
@@ -515,22 +592,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredRecords.map((record) => (
-                <ReleaseCard
-                  key={record.id}
-                  record={record}
-                  isExpanded={expandedRowId === record.id}
-                  onToggle={() =>
-                    setExpandedRowId((prev) => (prev === record.id ? null : record.id))
-                  }
-                  onEdit={handleEditClick}
-                  onRunbook={onPlanRecord}
+              {filteredBundles.map((bundle) => (
+                <ReleaseBundleCard
+                  key={bundle.key}
+                  bundle={bundle}
+                  promotedFromLabel={promotedFrom(bundle)}
+                  isExpanded={expandedRowId === bundle.key}
+                  onToggle={() => setExpandedRowId((prev) => (prev === bundle.key ? null : bundle.key))}
+                  busy={busyKey === bundle.key}
+                  onSetStatus={(b, status) => run(b, () => actions.setStatus(b, status))}
+                  onApplyStatus={(b) => run(b, () => actions.applyStatusToRecords(b))}
+                  onPromote={(b, target) => run(b, () => actions.promote(b, target), true)}
+                  onUndo={(b) => b.release && run(b, () => actions.undo(b.release!.id))}
+                  onRunbook={setRunbookBundle}
+                  onEditRecord={handleEditClick}
+                  onPlanRecord={onPlanRecord}
                 />
               ))}
             </div>
           )}
         </>
       )}
+
+      <BundleRunbookModal
+        bundle={runbookBundle}
+        sourceEnvironment={
+          runbookBundle?.release?.promotedFromId ? releaseById.get(runbookBundle.release.promotedFromId)?.environment ?? null : null
+        }
+        servers={servers}
+        catalog={catalog}
+        onClose={() => setRunbookBundle(null)}
+      />
 
       <EditRecordModal
         record={editingRecord}

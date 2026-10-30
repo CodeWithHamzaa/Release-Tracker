@@ -31,6 +31,8 @@ list gets 403. Public sign-ups no longer grant access by themselves.
 | Compare environments, preview patch plans (`/api/environments/compare`, `/api/patch-plans/preview`) | yes, **without config values** (keys only; every config step is "set by hand") | yes, values **redacted** |
 | Read, add and verify change mappings (`/api/changes`) | yes | yes |
 | Delete changes or change mappings | no (403) | yes |
+| Read, add and edit release bundles; promote and undo a promotion (`/api/releases`) | yes | yes |
+| Delete a release bundle and its records (`DELETE /api/releases/:id`) | no (403) | yes |
 
 Vault contents are stored as uploaded, including plaintext secrets. Writes are
 admin-only too because the save response includes the previous file content.

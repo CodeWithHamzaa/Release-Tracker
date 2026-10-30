@@ -31,7 +31,8 @@ export const StatsBar: React.FC<StatsBarProps> = ({ records }) => {
     return {
       total: records.length,
       successCount: normalized.filter((s) => s === 'SUCCESS').length,
-      pendingCount: normalized.filter((s) => s !== 'SUCCESS' && s !== 'FAILED').length,
+      // PLANNED (a promotion not deployed yet) is not pending a test result.
+      pendingCount: normalized.filter((s) => s !== 'SUCCESS' && s !== 'FAILED' && s !== 'PLANNED').length,
       failedCount: normalized.filter((s) => s === 'FAILED').length,
     };
   }, [records]);

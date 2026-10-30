@@ -15,7 +15,7 @@ model ReleaseRecord {
   service       String // e.g., bot-builder-api, websocket-server
   version       String // e.g., v1.0.2
   developerName String // Developer who wrote or provided the build
-  status        String @default("PENDING") // SUCCESS, FAILED, PENDING
+  status        String @default("PENDING") // SUCCESS, FAILED, PENDING, PLANNED
 
   isBuildUpdate  Boolean @default(false)
   isEnvUpdate    Boolean @default(false)
@@ -30,6 +30,40 @@ model ReleaseRecord {
   added_by  String // Hameed or Hanzala
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // The release bundle this record belongs to (prisma/manual/008). Null for
+  // records logged before bundles existed; they show as one-service bundles.
+  releaseId String?
+  release   Release? @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+
+  @@index([releaseId])
+}
+
+// A release bundle: one release event with one ReleaseRecord per service.
+// Its status is the bundle's own; each record keeps its own status, which is
+// what current versions and receipts use. A promotion copies a release into
+// the next environment as PLANNED (promotedFromId) and keeps what Undo needs
+// in undoState until the copy is reverted or moves on.
+model Release {
+  id              String          @id @default(uuid())
+  title           String
+  environment     String // SIT, UAT, Prod
+  status          String          @default("PENDING") // PENDING, SUCCESS, FAILED, PLANNED
+  releasedAt      DateTime // editable / backdatable; its records carry the same date
+  hasConfigChange Boolean         @default(false)
+  configDetails   String?
+  note            String?
+  promotedFromId  String?
+  promotedFrom    Release?        @relation("Promotion", fields: [promotedFromId], references: [id], onDelete: SetNull)
+  promotions      Release[]       @relation("Promotion")
+  undoState       Json? // { kind: "created" } or { kind: "updated", release, records }
+  createdBy       String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  records         ReleaseRecord[]
+
+  @@index([environment, releasedAt])
+  @@index([promotedFromId])
 }
 
 // Service catalog: the servers (groups) and services offered in the Add Record

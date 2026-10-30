@@ -23,6 +23,7 @@ import { matchReceipt, receiptNote } from './receiptMatch.js';
 import { imageTag } from './configDrift.js';
 import { DEFAULT_DEVELOPER } from './developers.js';
 import { planningRouter } from './planningApi.js';
+import { releasesRouter } from './releasesApi.js';
 import { ENVIRONMENTS } from './environments.js';
 import crypto from 'crypto';
 
@@ -194,10 +195,14 @@ router.get('/health', async (req: Request, res: Response) => {
 // and assets under `npm run dev` / self-hosting. New route prefixes go here.
 // requireAuth also sets req.user.role; destructive routes and Config Vault
 // contents add requireRole('admin') below.
-router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts', '/environments', '/changes', '/patch-plans'], requireAuth);
+router.use(['/records', '/catalog', '/servers', '/configs', '/health-reports', '/receipts', '/environments', '/changes', '/patch-plans', '/releases'], requireAuth);
 
 // Patch planner (lib/planningApi.ts): read-only comparison and plans.
 router.use(planningRouter);
+
+// Release bundles (lib/releasesApi.ts). Its local-dev memory store writes
+// into memoryRecords, so the feed sees the bundle's service records.
+router.use(releasesRouter(memoryRecords));
 
 // 2. GET all release records
 router.get('/records', async (req: Request, res: Response) => {

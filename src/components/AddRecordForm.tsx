@@ -18,10 +18,11 @@ import {
   Layers,
   Box,
   Hash,
+  CalendarClock,
   AlertTriangle,
   ChevronDown,
 } from 'lucide-react';
-import { ReleaseRecord, ReleaseStatus } from '@/lib/types';
+import { Release, ReleaseRecord, ReleaseStatus } from '@/lib/types';
 import { DEFAULT_DEVELOPER, developerOptions } from '@/lib/developers';
 import { NOTE_LABEL, validateNote } from '@/lib/releaseNote';
 import { apiFetch, apiErrorMessage } from '../api';
@@ -38,7 +39,7 @@ export interface ServiceFormBlock {
 }
 
 interface AddRecordFormProps {
-  onSuccess: (newRecords: ReleaseRecord | ReleaseRecord[]) => void;
+  onSuccess: (newRecords: ReleaseRecord[], release: Release | null) => void;
   onCancel: () => void;
   // Server (group) -> services, from the catalog (see useCatalog).
   catalog: Record<string, string[]>;
@@ -55,6 +56,10 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
   const defaultServices = ARCHITECTURE_SERVICES[defaultServer] || [];
 
   // Global Batch State (Top)
+  // The release bundle: its purpose and when it happened. An empty date means
+  // "now"; a past date backdates a forgotten or historical patch.
+  const [title, setTitle] = useState<string>('');
+  const [releasedAt, setReleasedAt] = useState<string>('');
   const [environment, setEnvironment] = useState<'SIT' | 'UAT' | 'Prod'>('SIT');
   const [status, setStatus] = useState<ReleaseStatus>('PENDING');
   const [addedBy, setAddedBy] = useState<string>('A.Hameed');
@@ -180,6 +185,17 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
       return;
     }
 
+    if (!title.trim()) {
+      setErrorMsg('Give the release a purpose / title (e.g. "Chat reconnect fixes").');
+      return;
+    }
+    // datetime-local is local time without a zone; Date() reads it as local.
+    const when = releasedAt ? new Date(releasedAt) : null;
+    if (when && (Number.isNaN(when.getTime()) || when.getTime() > Date.now() + 24 * 60 * 60 * 1000)) {
+      setErrorMsg('The release date cannot be in the future.');
+      return;
+    }
+
     // 1. Validate Services Array
     if (servicesList.length === 0) {
       setErrorMsg('Please add at least one service to the deployment batch.');
@@ -245,6 +261,10 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
 
     // Construct Batch Payload
     const batchPayload = {
+      title: title.trim(),
+      ...(when ? { releasedAt: when.toISOString() } : {}),
+      // Env and config changes both need action on the servers.
+      hasConfigChange: isConfigUpdate || isEnvUpdate,
       environment,
       added_by: addedBy,
       developerName: globalDeveloperName.trim() || addedBy,
@@ -263,7 +283,7 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
     setIsLoading(true);
 
     try {
-      const res = await apiFetch('/api/records', {
+      const res = await apiFetch('/api/releases', {
         method: 'POST',
         body: JSON.stringify(batchPayload),
       });
@@ -273,19 +293,15 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
       }
 
       const resJson = await res.json();
-      const createdList: ReleaseRecord[] =
-        resJson.records && Array.isArray(resJson.records)
-          ? resJson.records
-          : Array.isArray(resJson)
-          ? resJson
-          : [resJson];
+      const createdList: ReleaseRecord[] = Array.isArray(resJson.records) ? resJson.records : [];
+      const release: Release | null = resJson.release ?? null;
 
       setSuccessMsg(
-        `Batch release recorded successfully! (${createdList.length} services deployed to ${environment})`
+        `Release recorded: ${createdList.length} service${createdList.length === 1 ? '' : 's'} in ${environment}${when ? `, dated ${when.toLocaleString()}` : ''}.`
       );
 
       setTimeout(() => {
-        onSuccess(createdList);
+        onSuccess(createdList, release);
       }, 700);
     } catch (err: any) {
       // Never fake a local save: a record that only exists in this tab would
@@ -327,14 +343,14 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
               <div>
                 <div className="flex items-center space-x-2">
                   <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                    New Batch Deployment
+                    New Release / Patch Entry
                   </h1>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-800/60">
                     Multi-Service
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-zinc-300 mt-1">
-                  Deploy multiple services across servers simultaneously into a single environment batch.
+                  One release event: its purpose, date and every service build it includes, each with its owner.
                 </p>
               </div>
             </div>
@@ -376,6 +392,44 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
             <div className="flex items-center space-x-2 text-xs font-bold text-zinc-300 uppercase tracking-wider pb-2 border-b border-zinc-800/60">
               <Sliders className="w-4 h-4 text-emerald-400" />
               <span>1. Global Batch Environment & Attributes</span>
+            </div>
+
+            {/* Release purpose + date (backdating) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label htmlFor="input-release-title" className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2">
+                  Release Purpose / Title *
+                </label>
+                <input
+                  id="input-release-title"
+                  type="text"
+                  value={title}
+                  maxLength={150}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Chat reconnect fixes + retriever tuning"
+                  className="w-full px-3.5 py-2.5 bg-surface-overlay border border-white/15 rounded-xl text-sm font-semibold text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="input-released-at" className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2">
+                  Release Date &amp; Time
+                </label>
+                <div className="relative">
+                  <CalendarClock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
+                  <input
+                    id="input-released-at"
+                    type="datetime-local"
+                    value={releasedAt}
+                    max={localDateTimeValue(new Date())}
+                    onChange={(e) => setReleasedAt(e.target.value)}
+                    className="w-full pl-9 pr-2 py-2.5 bg-surface-overlay border border-white/15 rounded-xl text-sm text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  {releasedAt ? 'Backdated: the services are logged as of this time.' : 'Leave empty for now. Pick a past time to backdate.'}
+                </p>
+              </div>
             </div>
 
             {/* Status Selection - Strict Uppercase Standard */}
@@ -689,6 +743,30 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
                           />
                         </div>
                       </div>
+
+                      {/* Owner of this build (defaults to the lead developer) */}
+                      <div className="sm:col-span-12">
+                        <label htmlFor={`select-owner-${block.id}`} className="block text-xs font-semibold text-zinc-200 mb-1.5">
+                          Owner / Developer of this build
+                        </label>
+                        <div className="relative sm:max-w-sm">
+                          <User className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-emerald-500" />
+                          <select
+                            id={`select-owner-${block.id}`}
+                            value={block.developerName}
+                            onChange={(e) => handleUpdateBlockField(block.id, 'developerName', e.target.value)}
+                            className="w-full pl-9 pr-9 py-2 bg-surface-overlay border border-zinc-700/80 rounded-xl text-sm font-medium text-white appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                          >
+                            <option value="">Same as lead ({globalDeveloperName || addedBy})</option>
+                            {developerOptions(block.developerName).map((name) => (
+                              <option key={name} value={name}>
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -914,3 +992,9 @@ export const AddRecordForm: React.FC<AddRecordFormProps> = ({
     </div>
   );
 };
+
+// A Date as the value of <input type="datetime-local"> (local time, minutes).
+function localDateTimeValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

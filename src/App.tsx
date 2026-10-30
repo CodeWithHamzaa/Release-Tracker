@@ -6,7 +6,8 @@ import { DashboardView } from './components/DashboardView';
 import { AddRecordForm } from './components/AddRecordForm';
 import { InfrastructureView } from './components/InfrastructureView';
 import { LoginView } from './components/LoginView';
-import { ReleaseRecord } from '@/lib/types';
+import { Release, ReleaseRecord } from '@/lib/types';
+import { useReleases, RecordChanges } from './useReleases';
 import { getSupabaseClient } from '@/lib/supabase';
 import { apiFetch, apiErrorMessage } from './api';
 import { useCatalog, CatalogService } from './useCatalog';
@@ -333,6 +334,13 @@ export default function App() {
     if (signedIn) fetchRecords();
   }, [signedIn, userId, fetchRecords]);
 
+  // Release bundles; their actions hand back the records they touched.
+  const mergeRecords = useCallback(({ upsert = [], removeIds = [] }: RecordChanges) => {
+    const gone = new Set([...removeIds, ...upsert.map((r) => r.id)]);
+    setRecords((prev) => [...upsert, ...prev.filter((r) => !gone.has(r.id))]);
+  }, []);
+  const releases = useReleases(signedIn, mergeRecords);
+
   // What servers actually run (latest status/snapshot), for the Drift Matrix.
   const running = useMemo(() => runningIndex(health.reports, records), [health.reports, records]);
 
@@ -368,12 +376,14 @@ export default function App() {
     );
   }, [catalog.source, catalog.services, catalog.serverMap]);
 
-  const handleNewRecord = useCallback((incoming: ReleaseRecord | ReleaseRecord[]) => {
-    const list = Array.isArray(incoming) ? incoming : [incoming];
-    const incomingIds = new Set(list.map((r) => r.id));
-    setRecords((prev) => [...list, ...prev.filter((r) => !incomingIds.has(r.id))]);
-    setCurrentPath('/');
-  }, []);
+  const handleNewRelease = useCallback(
+    (list: ReleaseRecord[], release: Release | null) => {
+      mergeRecords({ upsert: list });
+      releases.added(release);
+      setCurrentPath('/');
+    },
+    [mergeRecords, releases.added]
+  );
 
   // Records created elsewhere (config vault "log as release records"):
   // merge them in without leaving the current page.
@@ -432,7 +442,7 @@ export default function App() {
         {currentPath === '/add' ? (
           <AddRecordForm
             catalog={catalog.serverMap}
-            onSuccess={handleNewRecord}
+            onSuccess={handleNewRelease}
             onCancel={() => setCurrentPath('/')}
           />
         ) : currentPath === '/infrastructure' ? (
@@ -497,6 +507,11 @@ export default function App() {
             onRecordDeleted={handleRecordDeleted}
             running={running}
             onPlanRecord={planRecord}
+            releases={releases.releases}
+            releasesWarning={releases.warning}
+            servers={registry.servers}
+            catalog={catalogServices}
+            actions={releases}
           />
         )}
       </main>

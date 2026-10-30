@@ -1,7 +1,8 @@
 // Which release records a deployment receipt closes, and with what status.
 //
-// Only PENDING records are ever touched (a record someone already set to
-// SUCCESS or FAILED stays as it is), always in the receipt's own environment
+// Only PENDING and PLANNED records are ever touched (a record someone already
+// set to SUCCESS or FAILED stays as it is; a PLANNED one is a promotion
+// waiting for exactly this deployment), always in the receipt's own environment
 // and server role. A record matches by the PATCH_ID in its note, by the image
 // the toolkit actually applied (service + version), or both. When the toolkit
 // applied specific images, a record also has to be for one of them: each server
@@ -34,6 +35,8 @@ export interface ReceiptMatchResult {
   unmatchedImages: ReceiptImage[]; // applied images no record was found for
 }
 
+const OPEN_STATUSES = new Set(['PENDING', 'PLANNED']);
+
 const repoName = (ref: string) => {
   const last = ref.split('@')[0].split('/').pop() ?? ref;
   return last.includes(':') ? last.slice(0, last.lastIndexOf(':')) : last;
@@ -55,7 +58,7 @@ export function matchReceipt(receipt: ParsedReceipt, records: MatchableRecord[])
   const env = trackerEnv(receipt.environment);
   const newStatus = receipt.verdict === 'success' ? 'SUCCESS' : receipt.verdict === 'failed' ? 'FAILED' : null;
   const pending = records.filter(
-    (r) => trackerEnv(r.environment) === env && r.server === receipt.role && String(r.status || '').toUpperCase() === 'PENDING'
+    (r) => trackerEnv(r.environment) === env && r.server === receipt.role && OPEN_STATUSES.has(String(r.status || '').toUpperCase())
   );
 
   const matches: ReceiptMatch[] = [];
