@@ -71,7 +71,7 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
     if (record) {
       const rawStatus = String(record.status || 'PENDING').trim().toUpperCase();
       const normalizedStatus: ReleaseStatus =
-        rawStatus === 'SUCCESS' ? 'SUCCESS' : rawStatus === 'FAILED' ? 'FAILED' : 'PENDING';
+        rawStatus === 'SUCCESS' || rawStatus === 'FAILED' || rawStatus === 'PLANNED' ? rawStatus : 'PENDING';
 
       setStatus(normalizedStatus);
       setVersion(record.version || 'v1.0.0');
@@ -228,7 +228,22 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
             <label className="block text-xs font-bold text-zinc-200 uppercase tracking-wider mb-2">
               Deployment Status *
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* PLANNED: promoted, not deployed yet (does not count as deployed). */}
+              <button
+                type="button"
+                onClick={() => setStatus('PLANNED')}
+                title="Logged ahead of deployment; not counted as deployed"
+                className={`flex items-center justify-center space-x-2 p-2.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
+                  status === 'PLANNED'
+                    ? 'bg-sky-950/40 text-sky-300 border-sky-600 ring-2 ring-sky-500/20'
+                    : 'bg-surface-overlay text-zinc-300 border-white/15 hover:bg-zinc-800/60'
+                }`}
+              >
+                <CalendarClock className="w-4 h-4 text-sky-400" />
+                <span>PLANNED</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setStatus('PENDING')}

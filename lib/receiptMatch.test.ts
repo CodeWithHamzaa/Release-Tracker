@@ -84,3 +84,9 @@ test('the note line says what happened, in plain words', () => {
   assert.match(line, /^\[receipt \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\] ROLLED_BACK, exit 1 on sit-chatbot-01, toolkit record \d{8}_\d{6}_PATCH-E2E\. The health gate failed/);
   assert.match(receiptNote(receipt('refused.json')), /refused, exit 2/);
 });
+
+test('a PLANNED record (a promotion) is closed by the receipt for its deployment', () => {
+  const { matches } = matchReceipt(receipt('success.json'), [rec({ status: 'PLANNED' })]);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].newStatus, 'SUCCESS');
+});

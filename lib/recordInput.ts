@@ -14,7 +14,7 @@ import { canonicalEnvironment, ENVIRONMENTS } from './environments.js';
 
 export { canonicalEnvironment };
 export const RECORD_ENVIRONMENTS = ENVIRONMENTS;
-export const RECORD_STATUSES: readonly ReleaseStatus[] = ['SUCCESS', 'FAILED', 'PENDING'];
+export const RECORD_STATUSES: readonly ReleaseStatus[] = ['SUCCESS', 'FAILED', 'PENDING', 'PLANNED'];
 
 export const MAX_RECORDS_PER_REQUEST = 100;
 const MAX_LABEL = 100; // server, service, version, developer, source
@@ -37,7 +37,7 @@ export function isFail(x: { ok: boolean }): x is Fail {
   return x.ok === false;
 }
 
-function label(body: any, key: string, required: boolean, max = MAX_LABEL): Field<string | undefined> {
+export function label(body: any, key: string, required: boolean, max = MAX_LABEL): Field<string | undefined> {
   const raw = body[key];
   if (raw === undefined || raw === null || raw === '') {
     return required ? fail(`${key} is required.`) : { ok: true, value: undefined };
@@ -51,7 +51,7 @@ function label(body: any, key: string, required: boolean, max = MAX_LABEL): Fiel
   return { ok: true, value: v };
 }
 
-function details(body: any, key: string): Field<string | null | undefined> {
+export function details(body: any, key: string): Field<string | null | undefined> {
   const raw = body[key];
   if (raw === undefined) return { ok: true, value: undefined };
   if (raw === null) return { ok: true, value: null };
@@ -62,7 +62,7 @@ function details(body: any, key: string): Field<string | null | undefined> {
   return { ok: true, value: v || null };
 }
 
-function flag(body: any, key: string): Field<boolean | undefined> {
+export function flag(body: any, key: string): Field<boolean | undefined> {
   const raw = body[key];
   if (raw === undefined) return { ok: true, value: undefined };
   // Not Boolean(raw): Boolean("false") is true.
@@ -79,7 +79,7 @@ function note(body: any): Field<string> {
   return { ok: true, value: v };
 }
 
-function status(body: any): Field<ReleaseStatus | undefined> {
+export function status(body: any): Field<ReleaseStatus | undefined> {
   const raw = body.status;
   if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined };
   const v = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
@@ -88,7 +88,7 @@ function status(body: any): Field<ReleaseStatus | undefined> {
     : fail(`status must be one of ${RECORD_STATUSES.join(', ')}.`);
 }
 
-function environment(body: any, required: boolean): Field<ReleaseRecord['environment'] | undefined> {
+export function environment(body: any, required: boolean): Field<ReleaseRecord['environment'] | undefined> {
   const raw = body.environment;
   if (!required && (raw === undefined || raw === null)) return { ok: true, value: undefined };
   const env = canonicalEnvironment(raw);

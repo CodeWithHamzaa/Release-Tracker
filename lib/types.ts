@@ -1,4 +1,7 @@
-export type ReleaseStatus = 'SUCCESS' | 'FAILED' | 'PENDING';
+// PLANNED: logged ahead of a deployment (a promotion copies a release into
+// the next environment as PLANNED). It never counts as deployed: only
+// SUCCESS and PENDING move an environment's current version.
+export type ReleaseStatus = 'SUCCESS' | 'FAILED' | 'PENDING' | 'PLANNED';
 
 export interface ReleaseRecord {
   id: string;
@@ -7,7 +10,7 @@ export interface ReleaseRecord {
   service: string; // e.g., 'bot-builder-api', 'websocket-server'
   version: string; // e.g., 'v1.0.2'
   developerName: string; // Developer who provided or wrote the build
-  status: ReleaseStatus | string; // 'SUCCESS' | 'FAILED' | 'PENDING'
+  status: ReleaseStatus | string; // 'SUCCESS' | 'FAILED' | 'PENDING' | 'PLANNED'
   isBuildUpdate: boolean;
   isEnvUpdate: boolean;
   envDetails?: string | null;
@@ -20,6 +23,7 @@ export interface ReleaseRecord {
   added_by: string; // 'A.Hameed' | 'Hanzala' | 'Hameed'
   createdAt: string | Date;
   updatedAt: string | Date;
+  releaseId?: string | null; // the Release bundle this record belongs to (null: logged before bundles)
 }
 
 export interface CreateReleaseRecordInput {
@@ -85,4 +89,23 @@ export interface CreateBatchReleaseInput {
   /** Mandatory: Release Notes / Status Update Notes. */
   note: string;
   services: BatchServiceInput[];
+}
+
+// A release bundle: one release event (purpose, date, environment) holding one
+// record per service/build. Its status is the bundle's own and can differ from
+// the status of each service record inside it.
+export interface Release {
+  id: string;
+  title: string;
+  environment: string; // 'SIT' | 'UAT' | 'Prod'
+  status: ReleaseStatus | string;
+  releasedAt: string | Date;
+  hasConfigChange: boolean;
+  configDetails?: string | null;
+  note?: string | null;
+  promotedFromId?: string | null;
+  canUndo?: boolean; // a promotion that can still be reverted
+  createdBy: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
 }
