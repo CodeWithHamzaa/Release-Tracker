@@ -21,6 +21,17 @@ Postgres 16: applied twice on top of the previous schema (built from the old
 
 Recovery: `ALTER TABLE "ReleaseRecord" DROP COLUMN "releaseId"; DROP TABLE "Release";`
 
+### Older records (`prisma/manual/009_backfill_release_bundles.sql`)
+
+Records logged before 008 are grouped into bundles: same environment, same
+note, each logged within 10 minutes of the previous one. Title = first line of
+the note, date = earliest record, status = the records' status when they all
+agree (else PENDING). Only `releaseId` is set on the records. Safe to run
+again; ids start with `backfill-`, and the file ends with the undo SQL.
+Applied to production on 2026-10-31: 103 records into 29 bundles, none left
+unlinked. Records that receipts or the config vault log later still arrive
+without a release and show as single rows.
+
 ## Statuses
 
 | Status | Meaning | Counts as deployed? |
